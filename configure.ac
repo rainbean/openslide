@@ -156,6 +156,17 @@ fi
 AC_SUBST([CYGWIN_CROSS_TEST])
 AM_CONDITIONAL([CYGWIN_CROSS_TEST], [test -n "$CYGWIN_CROSS_TEST"])
 
+# prevents Windows.h from defining IN or OUT parameter modifier
+AC_MSG_CHECKING([whether to disable IN/OUT modifier])
+if test "$host_os" = "mingw32"; then
+  AC_MSG_RESULT([yes])
+  CFLAG_NO_PSEUDO_MODIFIERS=-D_NO_W32_PSEUDO_MODIFIERS
+else
+  AC_MSG_RESULT([no])
+  CFLAG_NO_PSEUDO_MODIFIERS=""
+fi
+AC_SUBST([CFLAG_NO_PSEUDO_MODIFIERS])
+
 # gcc assumes Win32 stack frames are 16-byte-aligned by default, but the
 # Win32 ABI only requires 4-byte alignment.  If gcc emits aligned SSE
 # instructions that access the stack, this can cause GPFs if we're called by
@@ -189,7 +200,7 @@ AC_SUBST([WARN_CFLAGS])
 # MinGW only
 gl_WARN_ADD([-Wno-pedantic-ms-format])
 
-AC_SUBST(AM_CFLAGS, ['$(WARN_CFLAGS) $(CFLAG_VISIBILITY) -DG_DISABLE_SINGLE_INCLUDES -DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_56 -DGLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_MIN_REQUIRED -fno-common'])
+AC_SUBST(AM_CFLAGS, ['$(WARN_CFLAGS) $(CFLAG_VISIBILITY) $(CFLAG_NO_PSEUDO_MODIFIERS) -DG_DISABLE_SINGLE_INCLUDES -DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_56 -DGLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_MIN_REQUIRED -fno-common'])
 
 AC_SUBST(FEATURE_FLAGS)
 
