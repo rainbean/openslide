@@ -79,6 +79,7 @@ static const char VALUE_SCAN_DATA_LAYER_MACRO[] = "ScanDataLayer_SlideThumbnail"
 static const char VALUE_SCAN_DATA_LAYER_LABEL[] = "ScanDataLayer_SlideBarcode";
 static const char VALUE_SCAN_DATA_LAYER_THUMBNAIL[] = "ScanDataLayer_SlidePreview";
 static const char VALUE_SLIDE_ZOOM_LEVEL[] = "Slide zoom level";
+static const char VALUE_SLIDE_FOCUS_LEVEL[] = "Microscope focus level";
 
 static const int SLIDE_POSITION_RECORD_SIZE = 9;
 
@@ -1503,7 +1504,9 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   int objective_magnification = 0;
 
   char *index_filename = NULL;
+  int nlevels = 0;
   int zoom_levels = 0;
+  int focus_levels = 0;
   int hier_count = 0;
   int nonhier_count = 0;
   int position_nonhier_vimslide_offset = -1;  // VIMSLIDE_POSITION_BUFFER
@@ -1511,6 +1514,10 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   int macro_nonhier_offset = -1;
   int label_nonhier_offset = -1;
   int thumbnail_nonhier_offset = -1;
+
+  int slide_focus_level_value = -1;
+  char *key_slide_focus_level_name = NULL;
+  char *key_slide_focus_level_count = NULL;
 
   int slide_zoom_level_value = -1;
   char *key_slide_zoom_level_name = NULL;
@@ -1589,7 +1596,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   POSITIVE_OR_FAIL(hier_count);
   NON_NEGATIVE_OR_FAIL(nonhier_count);
 
-  // find key for slide zoom level
+  // iterate heir sections
   for (int i = 0; i < hier_count; i++) {
     char *key = g_strdup_printf(KEY_HIER_d_NAME, i);
     char *value = g_key_file_get_value(slidedat, GROUP_HIERARCHICAL, key, err);
@@ -1599,12 +1606,17 @@ static bool mirax_open(openslide_t *osr, const char *filename,
       goto FAIL;
     }
 
+    // find key for slide zoom level
     if (strcmp(VALUE_SLIDE_ZOOM_LEVEL, value) == 0) {
-      g_free(value);
       slide_zoom_level_value = i;
       key_slide_zoom_level_name = g_strdup_printf(KEY_HIER_d_NAME, i);
       key_slide_zoom_level_count = g_strdup_printf(KEY_HIER_d_COUNT, i);
-      break;
+    }
+    // find key for slide focus level
+    else if (strcmp(VALUE_SLIDE_FOCUS_LEVEL, value) == 0) {
+      slide_focus_level_value = i;
+      key_slide_focus_level_name = g_strdup_printf(KEY_HIER_d_NAME, i);
+      key_slide_focus_level_count = g_strdup_printf(KEY_HIER_d_COUNT, i);
     }
     g_free(value);
   }
@@ -1622,16 +1634,30 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     goto FAIL;
   }
 
+  if (slide_focus_level_value == -1) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "Can't find slide focus level");
+    goto FAIL;
+  }
+
   READ_KEY_OR_FAIL(index_filename, slidedat, GROUP_HIERARCHICAL,
                    KEY_INDEXFILE, value);
   READ_KEY_OR_FAIL(zoom_levels, slidedat, GROUP_HIERARCHICAL,
                    key_slide_zoom_level_count, integer);
   POSITIVE_OR_FAIL(zoom_levels);
+  READ_KEY_OR_FAIL(focus_levels, slidedat, GROUP_HIERARCHICAL,
+                   key_slide_focus_level_count, integer);
+  POSITIVE_OR_FAIL(focus_levels);
+  nlevels = zoom_levels + focus_levels - 1;
 
-
-  slide_zoom_level_section_names = g_new0(char *, zoom_levels + 1);
-  for (int i = 0; i < zoom_levels; i++) {
-    tmp = g_strdup_printf(KEY_HIER_d_VAL_d_SECTION, slide_zoom_level_value, i);
+  slide_zoom_level_section_names = g_new0(char *, nlevels + 1);
+  for (int i = 0; i < nlevels; i++) {
+    if (i < zoom_levels) {
+      tmp = g_strdup_printf(KEY_HIER_d_VAL_d_SECTION, slide_zoom_level_value, i);
+    } else {
+      // append extra focus level(s) after zoom level list, skip default zero focus level
+      tmp = g_strdup_printf(KEY_HIER_d_VAL_d_SECTION, slide_focus_level_value, i - zoom_levels);
+    }
 
     READ_KEY_OR_FAIL(slide_zoom_level_section_names[i], slidedat,
                      GROUP_HIERARCHICAL, tmp, value);
@@ -1661,12 +1687,15 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   }
 
   // load data from all slide_zoom_level_section_names sections
+  // slide_zoom_level_sections = g_new0(struct slide_zoom_level_section, nlevels);
   slide_zoom_level_sections = g_new0(struct slide_zoom_level_section, zoom_levels);
   for (int i = 0; i < zoom_levels; i++) {
     struct slide_zoom_level_section *hs = slide_zoom_level_sections + i;
 
     uint32_t bgr;
 
+    // focus level(s) share same config of default zero focus level
+    // char *group = slide_zoom_level_section_names[i < zoom_levels ? i : 0];
     char *group = slide_zoom_level_section_names[i];
     HAVE_GROUP_OR_FAIL(slidedat, group);
 
@@ -1757,7 +1786,9 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   g_debug("images (%d,%d)", images_x, images_y);
   g_debug("index_filename: %s", index_filename);
   g_debug("zoom_levels: %d", zoom_levels);
-  for (int i = 0; i < zoom_levels; i++) {
+  g_debug("focus_levels: %d", focus_levels);
+  g_debug("nlevels: %d", nlevels);
+  for (int i = 0; i < nlevels; i++) {
     g_debug(" section name %d: %s", i, slide_zoom_level_section_names[i]);
     struct slide_zoom_level_section *hs = slide_zoom_level_sections + i;
     g_debug("  overlap_x: %g", hs->overlap_x);
@@ -2043,6 +2074,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   g_free(slide_zoom_level_params);
   g_free(key_slide_zoom_level_name);
   g_free(key_slide_zoom_level_count);
+  g_free(key_slide_focus_level_name);
+  g_free(key_slide_focus_level_count);
 
   if (slidedat) {
     g_key_file_free(slidedat);
