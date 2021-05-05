@@ -145,7 +145,7 @@ enum image_format {
   FORMAT_BMP,
 };
 
-struct slide_zoom_level_section {
+struct slide_level_section {
   int concat_exponent;
 
   double overlap_x;
@@ -161,7 +161,7 @@ struct slide_zoom_level_section {
 };
 
 // see comments in _openslide_try_mirax()
-struct slide_zoom_level_params {
+struct slide_level_params {
   int image_concat;
   int tile_count_divisor;
   int tiles_per_image;
@@ -505,9 +505,9 @@ static bool read_nonhier_record(FILE *f, int64_t nonhier_root_position, int data
   return true;
 }
 
-static void insert_tile(struct level *l, const struct slide_zoom_level_params *lp,
+static void insert_tile(struct level *l, const struct slide_level_params *lp,
                         struct image *image, double pos_x, double pos_y, double src_x, double src_y,
-                        int tile_x, int tile_y, int zoom_level) {
+                        int tile_x, int tile_y, int level) {
   // increment image refcount
   image->refcount++;
 
@@ -536,7 +536,7 @@ static void insert_tile(struct level *l, const struct slide_zoom_level_params *l
                                    l->tile_h, tile);
 
   if (!true) {
-    g_debug("zoom %d, tile %d %d, pos %.10g %.10g, offset %.10g %.10g", zoom_level, tile_x, tile_y,
+    g_debug("level %d, tile %d %d, pos %.10g %.10g, offset %.10g %.10g", level, tile_x, tile_y,
             pos_x, pos_y, offset_x, offset_y);
 
     g_debug(" src %.10g %.10g dim %.10g %.10g", tile->src_x, tile->src_y, l->tile_w, l->tile_h);
@@ -546,10 +546,10 @@ static void insert_tile(struct level *l, const struct slide_zoom_level_params *l
 // given the coordinates of a tile, compute its level 0 pixel coordinates.
 // return false if none of the camera positions within the tile are active.
 static bool get_tile_position(int32_t *slide_positions, GHashTable *active_positions,
-                              const struct slide_zoom_level_params *slide_zoom_level_params,
+                              const struct slide_level_params *slide_level_params,
                               struct level **levels, int images_across, int image_divisions,
-                              int zoom_level, int xx, int yy, int *pos0_x, int *pos0_y) {
-  const struct slide_zoom_level_params *lp = slide_zoom_level_params + zoom_level;
+                              int level, int xx, int yy, int *pos0_x, int *pos0_y) {
+  const struct slide_level_params *lp = slide_level_params + level;
 
   const int image0_w = levels[0]->image_width;
   const int image0_h = levels[0]->image_height;
@@ -567,7 +567,7 @@ static bool get_tile_position(int32_t *slide_positions, GHashTable *active_posit
 
   // ensure only active positions (those present at zoom level 0) are
   // processed at higher zoom levels
-  if (zoom_level == 0) {
+  if (level == 0) {
     // If the level 0 concat factor <= image_divisions, we can simply mark
     // active any position with a corresponding level 0 image.
     //
@@ -593,23 +593,23 @@ static bool get_tile_position(int32_t *slide_positions, GHashTable *active_posit
       for (int xpp = xp; xpp < xp + lp->positions_per_tile; xpp++) {
         int cpp = ypp * (images_across / image_divisions) + xpp;
         if (g_hash_table_lookup_extended(active_positions, &cpp, NULL, NULL)) {
-          // g_debug("accept tile: level %d xp %d yp %d xpp %d ypp %d", zoom_level, xp,
+          // g_debug("accept tile: level %d xp %d yp %d xpp %d ypp %d", level, xp,
           // yp, xpp, ypp);
           return true;
         }
       }
     }
 
-    // g_debug("skip tile: level %d positions %d xp %d yp %d", zoom_level,
+    // g_debug("skip tile: level %d positions %d xp %d yp %d", level,
     // lp->positions_per_tile, xp, yp);
     return false;
   }
 }
 
 static bool process_hier_data_pages_from_indexfile(
-    FILE *f, int64_t seek_location, int datafile_count, char **datafile_paths, int zoom_levels,
+    FILE *f, int64_t seek_location, int datafile_count, char **datafile_paths, int nlevels,
     struct level **levels, int images_across, int images_down, int image_divisions,
-    const struct slide_zoom_level_params *slide_zoom_level_params, int32_t *slide_positions,
+    const struct slide_level_params *slide_level_params, int32_t *slide_positions,
     struct _openslide_hash *quickhash1, GError **err) {
   int32_t image_number = 0;
 
@@ -618,22 +618,22 @@ static bool process_hier_data_pages_from_indexfile(
   // used for storing which positions actually have data
   GHashTable *active_positions = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, NULL);
 
-  for (int zoom_level = 0; zoom_level < zoom_levels; zoom_level++) {
-    struct level *l = levels[zoom_level];
-    const struct slide_zoom_level_params *lp = slide_zoom_level_params + zoom_level;
+  for (int level = 0; level < nlevels; level++) {
+    struct level *l = levels[level];
+    const struct slide_level_params *lp = slide_level_params + level;
     int32_t ptr;
 
-    //    g_debug("reading zoom_level %d", zoom_level);
+    //    g_debug("reading level %d", level);
 
     if (fseeko(f, seek_location, SEEK_SET) == -1) {
       g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                  "Cannot seek to zoom level pointer %d", zoom_level);
+                  "Cannot seek to level pointer %d", level);
       goto DONE;
     }
 
     ptr = read_le_int32_from_file(f);
     if (ptr == -1) {
-      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't read zoom level pointer");
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't read level pointer");
       goto DONE;
     }
     if (fseeko(f, ptr, SEEK_SET) == -1) {
@@ -713,18 +713,18 @@ static bool process_hier_data_pages_from_indexfile(
 
         if (y >= images_down) {
           g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "y (%d) outside of bounds for zoom level (%d)", y, zoom_level);
+                      "y (%d) outside of bounds for level (%d)", y, level);
           goto DONE;
         }
 
         if (x % lp->image_concat) {
           g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "x (%d) not correct multiple for zoom level (%d)", x, zoom_level);
+                      "x (%d) not correct multiple for level (%d)", x, level);
           goto DONE;
         }
         if (y % lp->image_concat) {
           g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "y (%d) not correct multiple for zoom level (%d)", y, zoom_level);
+                      "y (%d) not correct multiple for level (%d)", y, level);
           goto DONE;
         }
 
@@ -735,7 +735,7 @@ static bool process_hier_data_pages_from_indexfile(
         }
 
         // hash in the lowest-res images
-        if (zoom_level == zoom_levels - 1) {
+        if (level == nlevels - 1) {
           if (!_openslide_hash_file_part(quickhash1, datafile_paths[fileno], offset, length, err)) {
             g_prefix_error(err, "Can't hash images: ");
             goto DONE;
@@ -774,8 +774,8 @@ static bool process_hier_data_pages_from_indexfile(
             // position in level 0
             int pos0_x;
             int pos0_y;
-            if (!get_tile_position(slide_positions, active_positions, slide_zoom_level_params,
-                                   levels, images_across, image_divisions, zoom_level, xx, yy,
+            if (!get_tile_position(slide_positions, active_positions, slide_level_params,
+                                   levels, images_across, image_divisions, level, xx, yy,
                                    &pos0_x, &pos0_y)) {
               // no such position
               continue;
@@ -789,7 +789,7 @@ static bool process_hier_data_pages_from_indexfile(
 
             insert_tile(l, lp, image, pos_x, pos_y, l->tile_w * xi, l->tile_h * yi,
                         x / lp->tile_count_divisor + xi, y / lp->tile_count_divisor + yi,
-                        zoom_level);
+                        level);
           }
         }
 
@@ -954,9 +954,9 @@ static bool add_associated_image(openslide_t *osr, FILE *indexfile, int64_t nonh
 static bool process_indexfile(openslide_t *osr, const char *uuid, int datafile_count,
                               char **datafile_paths, int vimslide_position_record,
                               int stitching_position_record, int macro_record, int label_record,
-                              int thumbnail_record, int zoom_levels, int images_x, int images_y,
+                              int thumbnail_record, int nlevels, int images_x, int images_y,
                               double overlap_x, double overlap_y, int image_divisions,
-                              const struct slide_zoom_level_params *slide_zoom_level_params,
+                              const struct slide_level_params *slide_level_params,
                               FILE *indexfile, struct level **levels,
                               struct _openslide_hash *quickhash1, GError **err) {
   char *teststr = NULL;
@@ -1049,7 +1049,7 @@ static bool process_indexfile(openslide_t *osr, const char *uuid, int datafile_c
 
     // read in the slide positions
     slide_positions = read_slide_position_buffer(slide_position_buffer, slide_position_buffer_size,
-                                                 slide_zoom_level_params[0].image_concat, err);
+                                                 slide_level_params[0].image_concat, err);
 
     g_free(slide_position_buffer);
 
@@ -1098,8 +1098,8 @@ static bool process_indexfile(openslide_t *osr, const char *uuid, int datafile_c
 
   // read these pages in
   if (!process_hier_data_pages_from_indexfile(
-          indexfile, ptr, datafile_count, datafile_paths, zoom_levels, levels, images_x, images_y,
-          image_divisions, slide_zoom_level_params, slide_positions, quickhash1, err)) {
+          indexfile, ptr, datafile_count, datafile_paths, nlevels, levels, images_x, images_y,
+          image_divisions, slide_level_params, slide_positions, quickhash1, err)) {
     goto DONE;
   }
 
@@ -1306,9 +1306,9 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   int slide_zoom_level_value = -1;
   char *key_slide_zoom_level_name = NULL;
   char *key_slide_zoom_level_count = NULL;
-  char **slide_zoom_level_section_names = NULL;
-  struct slide_zoom_level_section *slide_zoom_level_sections = NULL;
-  struct slide_zoom_level_params *slide_zoom_level_params = NULL;
+  char **slide_level_section_names = NULL;
+  struct slide_level_section *slide_level_sections = NULL;
+  struct slide_level_params *slide_level_params = NULL;
 
   int datafile_count = 0;
   char **datafile_paths = NULL;
@@ -1421,7 +1421,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   POSITIVE_OR_FAIL(focus_levels);
   nlevels = zoom_levels + focus_levels - 1;
 
-  slide_zoom_level_section_names = g_new0(char *, nlevels + 1);
+  slide_level_section_names = g_new0(char *, nlevels + 1);
   for (int i = 0; i < nlevels; i++) {
     if (i < zoom_levels) {
       tmp = g_strdup_printf(KEY_HIER_d_VAL_d_SECTION, slide_zoom_level_value, i);
@@ -1430,7 +1430,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
       tmp = g_strdup_printf(KEY_HIER_d_VAL_d_SECTION, slide_focus_level_value, i - zoom_levels);
     }
 
-    READ_KEY_OR_FAIL(slide_zoom_level_section_names[i], slidedat, GROUP_HIERARCHICAL, tmp, value);
+    READ_KEY_OR_FAIL(slide_level_section_names[i], slidedat, GROUP_HIERARCHICAL, tmp, value);
 
     g_free(tmp);
     tmp = NULL;
@@ -1455,17 +1455,17 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     tmp = NULL;
   }
 
-  // load data from all slide_zoom_level_section_names sections
-  // slide_zoom_level_sections = g_new0(struct slide_zoom_level_section, nlevels);
-  slide_zoom_level_sections = g_new0(struct slide_zoom_level_section, zoom_levels);
+  // load data from all slide_level_section_names sections
+  // slide_level_sections = g_new0(struct slide_level_section, nlevels);
+  slide_level_sections = g_new0(struct slide_level_section, zoom_levels);
   for (int i = 0; i < zoom_levels; i++) {
-    struct slide_zoom_level_section *hs = slide_zoom_level_sections + i;
+    struct slide_level_section *hs = slide_level_sections + i;
 
     uint32_t bgr;
 
     // focus level(s) share same config of default zero focus level
-    // char *group = slide_zoom_level_section_names[i < zoom_levels ? i : 0];
-    char *group = slide_zoom_level_section_names[i];
+    // char *group = slide_level_section_names[i < zoom_levels ? i : 0];
+    char *group = slide_level_section_names[i];
     HAVE_GROUP_OR_FAIL(slidedat, group);
 
     READ_KEY_OR_FAIL(hs->concat_exponent, slidedat, group, KEY_IMAGE_CONCAT_FACTOR, integer);
@@ -1534,8 +1534,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   g_debug("focus_levels: %d", focus_levels);
   g_debug("nlevels: %d", nlevels);
   for (int i = 0; i < nlevels; i++) {
-    g_debug(" section name %d: %s", i, slide_zoom_level_section_names[i]);
-    struct slide_zoom_level_section *hs = slide_zoom_level_sections + i;
+    g_debug(" section name %d: %s", i, slide_level_section_names[i]);
+    struct slide_level_section *hs = slide_level_sections + i;
     g_debug("  overlap_x: %g", hs->overlap_x);
     g_debug("  overlap_y: %g", hs->overlap_y);
     g_debug("  mpp_x: %g", hs->mpp_x);
@@ -1588,31 +1588,31 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   for (int i = 0; i < images_x; i++) {
     if (((i % image_divisions) != (image_divisions - 1)) || (i == images_x - 1)) {
       // full size
-      base_w += slide_zoom_level_sections[0].image_w;
+      base_w += slide_level_sections[0].image_w;
     } else {
       // size minus overlap
-      base_w += slide_zoom_level_sections[0].image_w - slide_zoom_level_sections[0].overlap_x;
+      base_w += slide_level_sections[0].image_w - slide_level_sections[0].overlap_x;
     }
   }
   for (int i = 0; i < images_y; i++) {
     if (((i % image_divisions) != (image_divisions - 1)) || (i == images_y - 1)) {
       // full size
-      base_h += slide_zoom_level_sections[0].image_h;
+      base_h += slide_level_sections[0].image_h;
     } else {
       // size minus overlap
-      base_h += slide_zoom_level_sections[0].image_h - slide_zoom_level_sections[0].overlap_y;
+      base_h += slide_level_sections[0].image_h - slide_level_sections[0].overlap_y;
     }
   }
 
   // set up level dimensions and such
   levels = g_new0(struct level *, zoom_levels);
-  slide_zoom_level_params = g_new(struct slide_zoom_level_params, zoom_levels);
+  slide_level_params = g_new(struct slide_level_params, zoom_levels);
   total_concat_exponent = 0;
   for (int i = 0; i < zoom_levels; i++) {
     struct level *l = g_slice_new0(struct level);
     levels[i] = l;
-    struct slide_zoom_level_section *hs = slide_zoom_level_sections + i;
-    struct slide_zoom_level_params *lp = slide_zoom_level_params + i;
+    struct slide_level_section *hs = slide_level_sections + i;
+    struct slide_level_params *lp = slide_level_params + i;
 
     // image_concat: number of images concatenated from the original in one
     //               dimension
@@ -1631,8 +1631,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     const int positions_per_image = MAX(1, lp->image_concat / image_divisions);
 
     if (position_nonhier_vimslide_offset != -1 || position_nonhier_stitching_offset != -1 ||
-        slide_zoom_level_sections[0].overlap_x != 0 ||
-        slide_zoom_level_sections[0].overlap_y != 0) {
+        slide_level_sections[0].overlap_x != 0 ||
+        slide_level_sections[0].overlap_y != 0) {
       // tile_count_divisor: as we record levels, we would prefer to shrink the
       //                     number of tiles, but keep the tile size constant,
       //                     but this only works until we encounter images
@@ -1691,7 +1691,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 
     // override downsample.  level 0 is defined to have a downsample of 1.0,
     // irrespective of its concat_exponent
-    l->base.downsample = lp->image_concat / slide_zoom_level_params[0].image_concat;
+    l->base.downsample = lp->image_concat / slide_level_params[0].image_concat;
 
     // create grid
     l->grid = _openslide_grid_create_tilemap(osr, lp->tile_advance_x, lp->tile_advance_y, read_tile,
@@ -1708,22 +1708,22 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   if (!process_indexfile(osr, slide_id, datafile_count, datafile_paths,
                          position_nonhier_vimslide_offset, position_nonhier_stitching_offset,
                          macro_nonhier_offset, label_nonhier_offset, thumbnail_nonhier_offset,
-                         zoom_levels, images_x, images_y, slide_zoom_level_sections[0].overlap_x,
-                         slide_zoom_level_sections[0].overlap_y, image_divisions,
-                         slide_zoom_level_params, indexfile, levels, quickhash1, err)) {
+                         zoom_levels, images_x, images_y, slide_level_sections[0].overlap_x,
+                         slide_level_sections[0].overlap_y, image_divisions,
+                         slide_level_params, indexfile, levels, quickhash1, err)) {
     goto FAIL;
   }
 
   // set properties
   _openslide_set_bounds_props_from_grid(osr, levels[0]->grid);
-  uint32_t fill = slide_zoom_level_sections[0].fill_rgb;
+  uint32_t fill = slide_level_sections[0].fill_rgb;
   _openslide_set_background_color_prop(osr, (fill >> 16) & 0xFF, (fill >> 8) & 0xFF, fill & 0xFF);
   g_hash_table_insert(osr->properties, g_strdup(OPENSLIDE_PROPERTY_NAME_OBJECTIVE_POWER),
                       g_strdup_printf("%d", objective_magnification));
   g_hash_table_insert(osr->properties, g_strdup(OPENSLIDE_PROPERTY_NAME_MPP_X),
-                      _openslide_format_double(slide_zoom_level_sections[0].mpp_x));
+                      _openslide_format_double(slide_level_sections[0].mpp_x));
   g_hash_table_insert(osr->properties, g_strdup(OPENSLIDE_PROPERTY_NAME_MPP_Y),
-                      _openslide_format_double(slide_zoom_level_sections[0].mpp_y));
+                      _openslide_format_double(slide_level_sections[0].mpp_y));
 
   /*
   for (int i = 0; i < zoom_levels; i++) {
@@ -1789,9 +1789,9 @@ DONE:
   g_free(slide_id);
   g_free(index_filename);
   g_strfreev(datafile_paths);
-  g_strfreev(slide_zoom_level_section_names);
-  g_free(slide_zoom_level_sections);
-  g_free(slide_zoom_level_params);
+  g_strfreev(slide_level_section_names);
+  g_free(slide_level_sections);
+  g_free(slide_level_params);
   g_free(key_slide_zoom_level_name);
   g_free(key_slide_zoom_level_count);
   g_free(key_slide_focus_level_name);
