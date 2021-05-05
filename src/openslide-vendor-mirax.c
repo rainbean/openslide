@@ -36,11 +36,10 @@
 #include "openslide-decode-png.h"
 
 #include <glib.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <math.h>
-
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <zlib.h>
 
 #include "openslide-hash.h"
@@ -97,50 +96,47 @@ static const char KEY_DIGITIZER_WIDTH[] = "DIGITIZER_WIDTH";
 static const char KEY_DIGITIZER_HEIGHT[] = "DIGITIZER_HEIGHT";
 static const char KEY_IMAGE_CONCAT_FACTOR[] = "IMAGE_CONCAT_FACTOR";
 
-#define READ_KEY_OR_FAIL(TARGET, KEYFILE, GROUP, KEY, TYPE)		\
-  do {									\
-    GError *tmp_err = NULL;						\
-    TARGET = g_key_file_get_ ## TYPE(KEYFILE, GROUP, KEY, &tmp_err);	\
-    if (tmp_err != NULL) {						\
-      g_propagate_error(err, tmp_err);					\
-      goto FAIL;							\
-    }									\
-  } while(0)
+#define READ_KEY_OR_FAIL(TARGET, KEYFILE, GROUP, KEY, TYPE)        \
+  do {                                                             \
+    GError *tmp_err = NULL;                                        \
+    TARGET = g_key_file_get_##TYPE(KEYFILE, GROUP, KEY, &tmp_err); \
+    if (tmp_err != NULL) {                                         \
+      g_propagate_error(err, tmp_err);                             \
+      goto FAIL;                                                   \
+    }                                                              \
+  } while (0)
 
-#define HAVE_GROUP_OR_FAIL(KEYFILE, GROUP)				\
-  do {									\
-    if (!g_key_file_has_group(slidedat, GROUP)) {			\
-      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,		\
-                  "Can't find %s group", GROUP);			\
-      goto FAIL;							\
-    }									\
-  } while(0)
+#define HAVE_GROUP_OR_FAIL(KEYFILE, GROUP)                                                     \
+  do {                                                                                         \
+    if (!g_key_file_has_group(slidedat, GROUP)) {                                              \
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't find %s group", GROUP); \
+      goto FAIL;                                                                               \
+    }                                                                                          \
+  } while (0)
 
-#define SUCCESSFUL_OR_FAIL(TMP_ERR)				\
-  do {								\
-    if (TMP_ERR) {						\
-      g_propagate_error(err, TMP_ERR);				\
-      goto FAIL;						\
-    }								\
-  } while(0)
+#define SUCCESSFUL_OR_FAIL(TMP_ERR)    \
+  do {                                 \
+    if (TMP_ERR) {                     \
+      g_propagate_error(err, TMP_ERR); \
+      goto FAIL;                       \
+    }                                  \
+  } while (0)
 
-#define POSITIVE_OR_FAIL(N)					\
-  do {								\
-    if (N <= 0) {						\
-      g_set_error(err, OPENSLIDE_ERROR,				\
-                  OPENSLIDE_ERROR_FAILED, #N " <= 0: %d", N);	\
-      goto FAIL;						\
-    }								\
-  } while(0)
+#define POSITIVE_OR_FAIL(N)                                                         \
+  do {                                                                              \
+    if (N <= 0) {                                                                   \
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, #N " <= 0: %d", N); \
+      goto FAIL;                                                                    \
+    }                                                                               \
+  } while (0)
 
-#define NON_NEGATIVE_OR_FAIL(N)					\
-  do {								\
-    if (N < 0) {						\
-      g_set_error(err, OPENSLIDE_ERROR,				\
-                  OPENSLIDE_ERROR_FAILED, #N " < 0: %d", N);	\
-      goto FAIL;						\
-    }								\
-  } while(0)
+#define NON_NEGATIVE_OR_FAIL(N)                                                    \
+  do {                                                                             \
+    if (N < 0) {                                                                   \
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, #N " < 0: %d", N); \
+      goto FAIL;                                                                   \
+    }                                                                              \
+  } while (0)
 
 enum image_format {
   FORMAT_UNKNOWN,
@@ -178,7 +174,7 @@ struct image {
   int32_t fileno;
   int32_t start_in_file;
   int32_t length;
-  int32_t imageno;   // used only for cache lookup
+  int32_t imageno;  // used only for cache lookup
   int refcount;
 };
 
@@ -218,38 +214,28 @@ static void tile_free(gpointer data) {
   g_slice_free(struct tile, tile);
 }
 
-static uint32_t *read_image(openslide_t *osr,
-                            struct image *image,
-                            enum image_format format,
-                            int w, int h,
-                            GError **err) {
+static uint32_t *read_image(openslide_t *osr, struct image *image, enum image_format format, int w,
+                            int h, GError **err) {
   struct mirax_ops_data *data = osr->data;
   bool result = false;
 
   uint32_t *dest = g_slice_alloc(w * h * 4);
 
   switch (format) {
-  case FORMAT_JPEG:
-    result = _openslide_jpeg_read(data->datafile_paths[image->fileno],
-                                  image->start_in_file,
-                                  dest, w, h,
-                                  err);
-    break;
-  case FORMAT_PNG:
-    result = _openslide_png_read(data->datafile_paths[image->fileno],
-                                 image->start_in_file,
-                                 dest, w, h,
-                                 err);
-    break;
-  case FORMAT_BMP:
-    result = _openslide_gdkpixbuf_read("bmp",
-                                       data->datafile_paths[image->fileno],
-                                       image->start_in_file, image->length,
-                                       dest, w, h,
-                                       err);
-    break;
-  default:
-    g_assert_not_reached();
+    case FORMAT_JPEG:
+      result = _openslide_jpeg_read(data->datafile_paths[image->fileno], image->start_in_file, dest,
+                                    w, h, err);
+      break;
+    case FORMAT_PNG:
+      result = _openslide_png_read(data->datafile_paths[image->fileno], image->start_in_file, dest,
+                                   w, h, err);
+      break;
+    case FORMAT_BMP:
+      result = _openslide_gdkpixbuf_read("bmp", data->datafile_paths[image->fileno],
+                                         image->start_in_file, image->length, dest, w, h, err);
+      break;
+    default:
+      g_assert_not_reached();
   }
 
   if (!result) {
@@ -259,30 +245,23 @@ static uint32_t *read_image(openslide_t *osr,
   return dest;
 }
 
-static bool read_tile(openslide_t *osr,
-                      cairo_t *cr,
-                      struct _openslide_level *level,
-                      int64_t tile_col G_GNUC_UNUSED,
-                      int64_t tile_row G_GNUC_UNUSED,
-                      void *data,
-                      void *arg G_GNUC_UNUSED,
-                      GError **err) {
-  struct level *l = (struct level *) level;
+static bool read_tile(openslide_t *osr, cairo_t *cr, struct _openslide_level *level,
+                      int64_t tile_col G_GNUC_UNUSED, int64_t tile_row G_GNUC_UNUSED, void *data,
+                      void *arg G_GNUC_UNUSED, GError **err) {
+  struct level *l = (struct level *)level;
   struct tile *tile = data;
   bool success = true;
 
   int iw = l->image_width;
   int ih = l->image_height;
 
-  //g_debug("mirax read_tile: src: %g %g, dim: %d %d, tile dim: %g %g, region %g %g %g %g", tile->src_x, tile->src_y, l->image_width, l->image_height, l->tile_w, l->tile_h, x, y, w, h);
+  // g_debug("mirax read_tile: src: %g %g, dim: %d %d, tile dim: %g %g, region %g %g %g %g",
+  // tile->src_x, tile->src_y, l->image_width, l->image_height, l->tile_w, l->tile_h, x, y, w, h);
 
   // get the image data, possibly from cache
   struct _openslide_cache_entry *cache_entry;
-  uint32_t *tiledata = _openslide_cache_get(osr->cache,
-                                            level,
-                                            tile->image->imageno,
-                                            0,
-                                            &cache_entry);
+  uint32_t *tiledata =
+      _openslide_cache_get(osr->cache, level, tile->image->imageno, 0, &cache_entry);
 
   if (!tiledata) {
     tiledata = read_image(osr, tile->image, l->image_format, iw, ih, err);
@@ -290,26 +269,19 @@ static bool read_tile(openslide_t *osr,
       return false;
     }
 
-    _openslide_cache_put(osr->cache,
-                         level, tile->image->imageno, 0,
-                         tiledata,
-                         iw * ih * 4,
+    _openslide_cache_put(osr->cache, level, tile->image->imageno, 0, tiledata, iw * ih * 4,
                          &cache_entry);
   }
 
   // draw it
-  cairo_surface_t *surface = cairo_image_surface_create_for_data((unsigned char *) tiledata,
-                                                                 CAIRO_FORMAT_RGB24,
-                                                                 iw, ih,
-                                                                 iw * 4);
+  cairo_surface_t *surface = cairo_image_surface_create_for_data(
+      (unsigned char *)tiledata, CAIRO_FORMAT_RGB24, iw, ih, iw * 4);
 
   // if we are drawing a subregion of the tile, we must do an additional copy,
   // because cairo lacks source clipping
-  if ((l->image_width > l->tile_w) ||
-      (l->image_height > l->tile_h)) {
-    cairo_surface_t *surface2 = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
-                                                           ceil(l->tile_w),
-                                                           ceil(l->tile_h));
+  if ((l->image_width > l->tile_w) || (l->image_height > l->tile_h)) {
+    cairo_surface_t *surface2 =
+        cairo_image_surface_create(CAIRO_FORMAT_ARGB32, ceil(l->tile_w), ceil(l->tile_h));
     cairo_t *cr2 = cairo_create(surface2);
     cairo_set_source_surface(cr2, surface, -tile->src_x, -tile->src_y);
 
@@ -317,9 +289,7 @@ static bool read_tile(openslide_t *osr,
     cairo_surface_destroy(surface);
     surface = surface2;
 
-    cairo_rectangle(cr2, 0, 0,
-                    ceil(l->tile_w),
-                    ceil(l->tile_h));
+    cairo_rectangle(cr2, 0, 0, ceil(l->tile_w), ceil(l->tile_h));
     cairo_fill(cr2);
     success = _openslide_check_cairo_status(cr2, err);
     cairo_destroy(cr2);
@@ -335,18 +305,12 @@ static bool read_tile(openslide_t *osr,
   return success;
 }
 
-static bool paint_region(openslide_t *osr G_GNUC_UNUSED, cairo_t *cr,
-                         int64_t x, int64_t y,
-                         struct _openslide_level *level,
-                         int32_t w, int32_t h,
-                         GError **err) {
-  struct level *l = (struct level *) level;
+static bool paint_region(openslide_t *osr G_GNUC_UNUSED, cairo_t *cr, int64_t x, int64_t y,
+                         struct _openslide_level *level, int32_t w, int32_t h, GError **err) {
+  struct level *l = (struct level *)level;
 
-  return _openslide_grid_paint_region(l->grid, cr, NULL,
-                                      x / level->downsample,
-                                      y / level->downsample,
-                                      level, w, h,
-                                      err);
+  return _openslide_grid_paint_region(l->grid, cr, NULL, x / level->downsample,
+                                      y / level->downsample, level, w, h, err);
 }
 
 static void destroy(openslide_t *osr) {
@@ -354,7 +318,7 @@ static void destroy(openslide_t *osr) {
 
   // each level in turn
   for (int32_t i = 0; i < osr->level_count; i++) {
-    struct level *l = (struct level *) osr->levels[i];
+    struct level *l = (struct level *)osr->levels[i];
     _openslide_grid_destroy(l->grid);
     g_slice_free(struct level, l);
   }
@@ -368,30 +332,27 @@ static void destroy(openslide_t *osr) {
 }
 
 static const struct _openslide_ops mirax_ops = {
-  .paint_region = paint_region,
-  .destroy = destroy,
+    .paint_region = paint_region,
+    .destroy = destroy,
 };
 
-static bool mirax_detect(const char *filename, struct _openslide_tifflike *tl,
-                         GError **err) {
+static bool mirax_detect(const char *filename, struct _openslide_tifflike *tl, GError **err) {
   // reject TIFFs
   if (tl) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Is a TIFF file");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Is a TIFF file");
     return false;
   }
 
   // verify filename
   if (!g_str_has_suffix(filename, MRXS_EXT)) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "File does not have %s extension", MRXS_EXT);
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "File does not have %s extension",
+                MRXS_EXT);
     return false;
   }
 
   // verify existence
   if (!g_file_test(filename, G_FILE_TEST_EXISTS)) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "File does not exist");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "File does not exist");
     return false;
   }
 
@@ -402,8 +363,7 @@ static bool mirax_detect(const char *filename, struct _openslide_tifflike *tl,
   g_free(slidedat_path);
   g_free(dirname);
   if (!ok) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "%s does not exist", SLIDEDAT_INI);
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "%s does not exist", SLIDEDAT_INI);
     return false;
   }
 
@@ -443,27 +403,19 @@ static int32_t read_le_int32_from_file(FILE *f) {
   return i;
 }
 
-
-static bool read_nonhier_record(FILE *f,
-				int64_t nonhier_root_position,
-				int datafile_count,
-				char **datafile_paths,
-				int recordno,
-				char **path,
-				int64_t *size, int64_t *position,
-				GError **err) {
+static bool read_nonhier_record(FILE *f, int64_t nonhier_root_position, int datafile_count,
+                                char **datafile_paths, int recordno, char **path, int64_t *size,
+                                int64_t *position, GError **err) {
   g_return_val_if_fail(recordno >= 0, false);
 
   if (fseeko(f, nonhier_root_position, SEEK_SET) == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Cannot seek to nonhier root");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Cannot seek to nonhier root");
     return false;
   }
 
   int32_t ptr = read_le_int32_from_file(f);
   if (ptr == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Can't read initial nonhier pointer");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't read initial nonhier pointer");
     return false;
   }
 
@@ -477,15 +429,15 @@ static bool read_nonhier_record(FILE *f,
   // read pointer
   ptr = read_le_int32_from_file(f);
   if (ptr == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Can't read nonhier record %d", recordno);
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't read nonhier record %d",
+                recordno);
     return false;
   }
 
   // seek
   if (fseeko(f, ptr, SEEK_SET) == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Cannot seek to nonhier record %d", recordno);
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Cannot seek to nonhier record %d",
+                recordno);
     return false;
   }
 
@@ -506,15 +458,13 @@ static bool read_nonhier_record(FILE *f,
 
   // seek to offset
   if (fseeko(f, ptr, SEEK_SET) == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Can't seek to initial data page");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't seek to initial data page");
     return false;
   }
 
   // read pagesize == 1
   if (read_le_int32_from_file(f) != 1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Expected 1 value");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Expected 1 value");
     return false;
   }
 
@@ -523,37 +473,31 @@ static bool read_nonhier_record(FILE *f,
   // http://lists.andrew.cmu.edu/pipermail/openslide-users/2013-August/000634.html
   read_le_int32_from_file(f);
   if (read_le_int32_from_file(f) != 0) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Expected second 0 value");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Expected second 0 value");
     return false;
   }
   if (read_le_int32_from_file(f) != 0) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Expected third 0 value");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Expected third 0 value");
     return false;
   }
 
   // finally read offset, size, fileno
   *position = read_le_int32_from_file(f);
   if (*position == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Can't read position");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't read position");
     return false;
   }
   *size = read_le_int32_from_file(f);
   if (*size == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Can't read size");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't read size");
     return false;
   }
   int fileno = read_le_int32_from_file(f);
   if (fileno == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Can't read fileno");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't read fileno");
     return false;
   } else if (fileno < 0 || fileno >= datafile_count) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Invalid fileno %d", fileno);
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Invalid fileno %d", fileno);
     return false;
   }
   *path = datafile_paths[fileno];
@@ -561,14 +505,9 @@ static bool read_nonhier_record(FILE *f,
   return true;
 }
 
-
-static void insert_tile(struct level *l,
-                        const struct slide_zoom_level_params *lp,
-                        struct image *image,
-                        double pos_x, double pos_y,
-                        double src_x, double src_y,
-                        int tile_x, int tile_y,
-                        int zoom_level) {
+static void insert_tile(struct level *l, const struct slide_zoom_level_params *lp,
+                        struct image *image, double pos_x, double pos_y, double src_x, double src_y,
+                        int tile_x, int tile_y, int zoom_level) {
   // increment image refcount
   image->refcount++;
 
@@ -593,34 +532,24 @@ static void insert_tile(struct level *l,
   }
 
   // insert
-  _openslide_grid_tilemap_add_tile(l->grid,
-                                   tile_x, tile_y,
-                                   offset_x, offset_y,
-                                   l->tile_w, l->tile_h,
-                                   tile);
+  _openslide_grid_tilemap_add_tile(l->grid, tile_x, tile_y, offset_x, offset_y, l->tile_w,
+                                   l->tile_h, tile);
 
   if (!true) {
-    g_debug("zoom %d, tile %d %d, pos %.10g %.10g, offset %.10g %.10g",
-	    zoom_level, tile_x, tile_y, pos_x, pos_y, offset_x, offset_y);
+    g_debug("zoom %d, tile %d %d, pos %.10g %.10g, offset %.10g %.10g", zoom_level, tile_x, tile_y,
+            pos_x, pos_y, offset_x, offset_y);
 
-    g_debug(" src %.10g %.10g dim %.10g %.10g",
-	    tile->src_x, tile->src_y, l->tile_w, l->tile_h);
+    g_debug(" src %.10g %.10g dim %.10g %.10g", tile->src_x, tile->src_y, l->tile_w, l->tile_h);
   }
 }
 
 // given the coordinates of a tile, compute its level 0 pixel coordinates.
 // return false if none of the camera positions within the tile are active.
-static bool get_tile_position(int32_t *slide_positions,
-                              GHashTable *active_positions,
+static bool get_tile_position(int32_t *slide_positions, GHashTable *active_positions,
                               const struct slide_zoom_level_params *slide_zoom_level_params,
-                              struct level **levels,
-                              int images_across,
-                              int image_divisions,
-                              int zoom_level, int xx, int yy,
-                              int *pos0_x, int *pos0_y)
-{
-  const struct slide_zoom_level_params *lp = slide_zoom_level_params +
-      zoom_level;
+                              struct level **levels, int images_across, int image_divisions,
+                              int zoom_level, int xx, int yy, int *pos0_x, int *pos0_y) {
+  const struct slide_zoom_level_params *lp = slide_zoom_level_params + zoom_level;
 
   const int image0_w = levels[0]->image_width;
   const int image0_h = levels[0]->image_height;
@@ -629,12 +558,12 @@ static bool get_tile_position(int32_t *slide_positions,
   int xp = xx / image_divisions;
   int yp = yy / image_divisions;
   int cp = yp * (images_across / image_divisions) + xp;
-  //g_debug("xx %d, yy %d, xp %d, yp %d, cp %d, spp %d, sc %d, image0: %d %d tile: %g %g", xx, yy, xp, yp, cp, tiles_per_position, lp->tiles_per_image, image0_w, image0_h, l->tile_w, l->tile_h);
+  // g_debug("xx %d, yy %d, xp %d, yp %d, cp %d, spp %d, sc %d, image0: %d %d tile: %g %g", xx,
+  // yy, xp, yp, cp, tiles_per_position, lp->tiles_per_image, image0_w, image0_h, l->tile_w,
+  // l->tile_h);
 
-  *pos0_x = slide_positions[cp * 2] +
-      image0_w * (xx - xp * image_divisions);
-  *pos0_y = slide_positions[(cp * 2) + 1] +
-      image0_h * (yy - yp * image_divisions);
+  *pos0_x = slide_positions[cp * 2] + image0_w * (xx - xp * image_divisions);
+  *pos0_y = slide_positions[(cp * 2) + 1] + image0_h * (yy - yp * image_divisions);
 
   // ensure only active positions (those present at zoom level 0) are
   // processed at higher zoom levels
@@ -649,8 +578,7 @@ static bool get_tile_position(int32_t *slide_positions,
     // at least filter out these, and we must because such positions break
     // the tilemap grid's range search.  Assume that only position (0, 0)
     // can be at pixel (0, 0).
-    if (slide_positions[cp * 2] == 0 && slide_positions[cp * 2 + 1] == 0 &&
-        (xp != 0 || yp != 0)) {
+    if (slide_positions[cp * 2] == 0 && slide_positions[cp * 2 + 1] == 0 && (xp != 0 || yp != 0)) {
       return false;
     }
 
@@ -665,42 +593,34 @@ static bool get_tile_position(int32_t *slide_positions,
       for (int xpp = xp; xpp < xp + lp->positions_per_tile; xpp++) {
         int cpp = ypp * (images_across / image_divisions) + xpp;
         if (g_hash_table_lookup_extended(active_positions, &cpp, NULL, NULL)) {
-          //g_debug("accept tile: level %d xp %d yp %d xpp %d ypp %d", zoom_level, xp, yp, xpp, ypp);
+          // g_debug("accept tile: level %d xp %d yp %d xpp %d ypp %d", zoom_level, xp,
+          // yp, xpp, ypp);
           return true;
         }
       }
     }
 
-    //g_debug("skip tile: level %d positions %d xp %d yp %d", zoom_level, lp->positions_per_tile, xp, yp);
+    // g_debug("skip tile: level %d positions %d xp %d yp %d", zoom_level,
+    // lp->positions_per_tile, xp, yp);
     return false;
   }
 }
 
-static bool process_hier_data_pages_from_indexfile(FILE *f,
-						   int64_t seek_location,
-						   int datafile_count,
-						   char **datafile_paths,
-						   int zoom_levels,
-						   struct level **levels,
-						   int images_across,
-						   int images_down,
-						   int image_divisions,
-						   const struct slide_zoom_level_params *slide_zoom_level_params,
-						   int32_t *slide_positions,
-						   struct _openslide_hash *quickhash1,
-						   GError **err) {
+static bool process_hier_data_pages_from_indexfile(
+    FILE *f, int64_t seek_location, int datafile_count, char **datafile_paths, int zoom_levels,
+    struct level **levels, int images_across, int images_down, int image_divisions,
+    const struct slide_zoom_level_params *slide_zoom_level_params, int32_t *slide_positions,
+    struct _openslide_hash *quickhash1, GError **err) {
   int32_t image_number = 0;
 
   bool success = false;
 
   // used for storing which positions actually have data
-  GHashTable *active_positions = g_hash_table_new_full(g_int_hash, g_int_equal,
-						       g_free, NULL);
+  GHashTable *active_positions = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, NULL);
 
   for (int zoom_level = 0; zoom_level < zoom_levels; zoom_level++) {
     struct level *l = levels[zoom_level];
-    const struct slide_zoom_level_params *lp = slide_zoom_level_params +
-        zoom_level;
+    const struct slide_zoom_level_params *lp = slide_zoom_level_params + zoom_level;
     int32_t ptr;
 
     //    g_debug("reading zoom_level %d", zoom_level);
@@ -713,8 +633,7 @@ static bool process_hier_data_pages_from_indexfile(FILE *f,
 
     ptr = read_le_int32_from_file(f);
     if (ptr == -1) {
-      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                  "Can't read zoom level pointer");
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't read zoom level pointer");
       goto DONE;
     }
     if (fseeko(f, ptr, SEEK_SET) == -1) {
@@ -740,8 +659,7 @@ static bool process_hier_data_pages_from_indexfile(FILE *f,
 
     // seek to offset
     if (fseeko(f, ptr, SEEK_SET) == -1) {
-      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                  "Can't seek to initial data page");
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't seek to initial data page");
       goto DONE;
     }
 
@@ -750,8 +668,7 @@ static bool process_hier_data_pages_from_indexfile(FILE *f,
       // read length
       int32_t page_len = read_le_int32_from_file(f);
       if (page_len == -1) {
-        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                    "Can't read page length");
+        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't read page length");
         goto DONE;
       }
 
@@ -760,145 +677,124 @@ static bool process_hier_data_pages_from_indexfile(FILE *f,
       // read "next" pointer
       next_ptr = read_le_int32_from_file(f);
       if (next_ptr == -1) {
-        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                    "Cannot read \"next\" pointer");
+        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Cannot read \"next\" pointer");
         goto DONE;
       }
 
       // read all the data into the list
       for (int i = 0; i < page_len; i++) {
-	int32_t image_index = read_le_int32_from_file(f);
-	int32_t offset = read_le_int32_from_file(f);
-	int32_t length = read_le_int32_from_file(f);
-	int32_t fileno = read_le_int32_from_file(f);
+        int32_t image_index = read_le_int32_from_file(f);
+        int32_t offset = read_le_int32_from_file(f);
+        int32_t length = read_le_int32_from_file(f);
+        int32_t fileno = read_le_int32_from_file(f);
 
-	if (image_index < 0) {
-          g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "image_index < 0");
+        if (image_index < 0) {
+          g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "image_index < 0");
           goto DONE;
-	}
-	if (offset < 0) {
-          g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "offset < 0");
+        }
+        if (offset < 0) {
+          g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "offset < 0");
           goto DONE;
-	}
-	if (length < 0) {
-          g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "length < 0");
+        }
+        if (length < 0) {
+          g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "length < 0");
           goto DONE;
-	}
-	if (fileno < 0) {
-          g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "fileno < 0");
+        }
+        if (fileno < 0) {
+          g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "fileno < 0");
           goto DONE;
-	}
+        }
 
-	// we have only encountered slides with exactly power-of-two scale
-	// factors, and there appears to be no clear way to specify otherwise,
-	// so require it
-	int32_t x = image_index % images_across;
-	int32_t y = image_index / images_across;
+        // we have only encountered slides with exactly power-of-two scale
+        // factors, and there appears to be no clear way to specify otherwise,
+        // so require it
+        int32_t x = image_index % images_across;
+        int32_t y = image_index / images_across;
 
-	if (y >= images_down) {
+        if (y >= images_down) {
           g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "y (%d) outside of bounds for zoom level (%d)",
-                      y, zoom_level);
+                      "y (%d) outside of bounds for zoom level (%d)", y, zoom_level);
           goto DONE;
-	}
+        }
 
-	if (x % lp->image_concat) {
+        if (x % lp->image_concat) {
           g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "x (%d) not correct multiple for zoom level (%d)",
-                      x, zoom_level);
+                      "x (%d) not correct multiple for zoom level (%d)", x, zoom_level);
           goto DONE;
-	}
-	if (y % lp->image_concat) {
+        }
+        if (y % lp->image_concat) {
           g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "y (%d) not correct multiple for zoom level (%d)",
-                      y, zoom_level);
+                      "y (%d) not correct multiple for zoom level (%d)", y, zoom_level);
           goto DONE;
-	}
+        }
 
-	// save filename
-	if (fileno >= datafile_count) {
-          g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                      "Invalid fileno");
+        // save filename
+        if (fileno >= datafile_count) {
+          g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Invalid fileno");
           goto DONE;
-	}
+        }
 
-	// hash in the lowest-res images
-	if (zoom_level == zoom_levels - 1) {
-	  if (!_openslide_hash_file_part(quickhash1, datafile_paths[fileno],
-	                                 offset, length, err)) {
+        // hash in the lowest-res images
+        if (zoom_level == zoom_levels - 1) {
+          if (!_openslide_hash_file_part(quickhash1, datafile_paths[fileno], offset, length, err)) {
             g_prefix_error(err, "Can't hash images: ");
             goto DONE;
-	  }
-	}
+          }
+        }
 
-	// populate the image structure
-	struct image *image = g_slice_new0(struct image);
-	image->fileno = fileno;
-	image->start_in_file = offset;
-	image->length = length;
-	image->imageno = image_number++;
-	image->refcount = 1;
+        // populate the image structure
+        struct image *image = g_slice_new0(struct image);
+        image->fileno = fileno;
+        image->start_in_file = offset;
+        image->length = length;
+        image->imageno = image_number++;
+        image->refcount = 1;
 
-	/*
-	g_debug("image_concat: %d, tiles_per_image: %d",
-		lp->image_concat, lp->tiles_per_image);
-	g_debug("found %d %d from file", x, y);
-	*/
+        /*
+        g_debug("image_concat: %d, tiles_per_image: %d",
+                lp->image_concat, lp->tiles_per_image);
+        g_debug("found %d %d from file", x, y);
+        */
 
+        // start processing 1 image into tiles_per_image^2 tiles
+        for (int yi = 0; yi < lp->tiles_per_image; yi++) {
+          int yy = y + (yi * image_divisions);
+          if (yy >= images_down) {
+            break;
+          }
 
-	// start processing 1 image into tiles_per_image^2 tiles
-	for (int yi = 0; yi < lp->tiles_per_image; yi++) {
-	  int yy = y + (yi * image_divisions);
-	  if (yy >= images_down) {
-	    break;
-	  }
+          for (int xi = 0; xi < lp->tiles_per_image; xi++) {
+            int xx = x + (xi * image_divisions);
+            if (xx >= images_across) {
+              break;
+            }
 
-	  for (int xi = 0; xi < lp->tiles_per_image; xi++) {
-	    int xx = x + (xi * image_divisions);
-	    if (xx >= images_across) {
-	      break;
-	    }
+            // xx and yy are the image coordinates in level0 space
 
-	    // xx and yy are the image coordinates in level0 space
-
-	    // position in level 0
+            // position in level 0
             int pos0_x;
             int pos0_y;
-            if (!get_tile_position(slide_positions,
-                                   active_positions,
-                                   slide_zoom_level_params,
-                                   levels,
-                                   images_across,
-                                   image_divisions,
-                                   zoom_level,
-                                   xx, yy,
+            if (!get_tile_position(slide_positions, active_positions, slide_zoom_level_params,
+                                   levels, images_across, image_divisions, zoom_level, xx, yy,
                                    &pos0_x, &pos0_y)) {
               // no such position
               continue;
             }
 
-	    // position in this level
-	    const double pos_x = ((double) pos0_x) / lp->image_concat;
-	    const double pos_y = ((double) pos0_y) / lp->image_concat;
+            // position in this level
+            const double pos_x = ((double)pos0_x) / lp->image_concat;
+            const double pos_y = ((double)pos0_y) / lp->image_concat;
 
-	    //g_debug("pos0: %d %d, pos: %g %g", pos0_x, pos0_y, pos_x, pos_y);
+            // g_debug("pos0: %d %d, pos: %g %g", pos0_x, pos0_y, pos_x, pos_y);
 
-	    insert_tile(l, lp,
-                        image,
-                        pos_x, pos_y,
-                        l->tile_w * xi, l->tile_h * yi,
-                        x / lp->tile_count_divisor + xi,
-                        y / lp->tile_count_divisor + yi,
+            insert_tile(l, lp, image, pos_x, pos_y, l->tile_w * xi, l->tile_h * yi,
+                        x / lp->tile_count_divisor + xi, y / lp->tile_count_divisor + yi,
                         zoom_level);
-	  }
-	}
+          }
+        }
 
-	// drop initial reference, possibly free
-	image_unref(image);
+        // drop initial reference, possibly free
+        image_unref(image);
       }
     } while (next_ptr != 0);
 
@@ -908,23 +804,16 @@ static bool process_hier_data_pages_from_indexfile(FILE *f,
 
   success = true;
 
- DONE:
+DONE:
   g_hash_table_unref(active_positions);
 
   return success;
 }
 
-static void *inflate_buffer(const void *src,
-                            int64_t src_len,
-                            int64_t dst_len,
-                            GError **err) {
+static void *inflate_buffer(const void *src, int64_t src_len, int64_t dst_len, GError **err) {
   void *dst = g_malloc(dst_len);
   z_stream strm = {
-    .avail_in = src_len,
-    .avail_out = dst_len,
-    .next_in = (Bytef *) src,
-    .next_out = (Bytef *) dst
-  };
+      .avail_in = src_len, .avail_out = dst_len, .next_in = (Bytef *)src, .next_out = (Bytef *)dst};
 
   int64_t error_code = -1;
 
@@ -933,7 +822,7 @@ static void *inflate_buffer(const void *src,
     goto ZLIB_ERROR;
   }
   error_code = inflate(&strm, Z_FINISH);
-  if (error_code != Z_STREAM_END || (int64_t) strm.total_out != dst_len) {
+  if (error_code != Z_STREAM_END || (int64_t)strm.total_out != dst_len) {
     inflateEnd(&strm);
     goto ZLIB_ERROR;
   }
@@ -947,22 +836,19 @@ static void *inflate_buffer(const void *src,
 ZLIB_ERROR:
   if (error_code == Z_STREAM_END) {
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Short read while decompressing: %lu/%"PRId64,
-                strm.total_out, dst_len);
+                "Short read while decompressing: %lu/%" PRId64, strm.total_out, dst_len);
   } else if (strm.msg) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Decompression failure: %s (%s)", zError(error_code), strm.msg);
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Decompression failure: %s (%s)",
+                zError(error_code), strm.msg);
   } else {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Decompression failure: %s", zError(error_code));
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Decompression failure: %s",
+                zError(error_code));
   }
   g_free(dst);
   return NULL;
 }
 
-static void *read_record_data(const char *path,
-                              int64_t size, int64_t offset,
-                              GError **err) {
+static void *read_record_data(const char *path, int64_t size, int64_t offset, GError **err) {
   void *buffer = NULL;
   FILE *f = _openslide_fopen(path, "rb", err);
   if (!f) {
@@ -970,16 +856,14 @@ static void *read_record_data(const char *path,
   }
 
   if (fseeko(f, offset, SEEK_SET) == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Cannot seek data file");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Cannot seek data file");
     fclose(f);
     return NULL;
   }
 
   buffer = g_malloc(size);
-  if (fread(buffer, sizeof(char), size, f) != (size_t) size) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Error while reading data");
+  if (fread(buffer, sizeof(char), size, f) != (size_t)size) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Error while reading data");
     g_free(buffer);
     fclose(f);
     return NULL;
@@ -989,14 +873,10 @@ static void *read_record_data(const char *path,
   return buffer;
 }
 
-static int32_t *read_slide_position_buffer(const void *buffer,
-					   int64_t buffer_size,
-					   int level_0_image_concat,
-					   GError **err) {
-
+static int32_t *read_slide_position_buffer(const void *buffer, int64_t buffer_size,
+                                           int level_0_image_concat, GError **err) {
   if (buffer_size % SLIDE_POSITION_RECORD_SIZE != 0) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Unexpected buffer size");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Unexpected buffer size");
     return NULL;
   }
 
@@ -1013,8 +893,7 @@ static int32_t *read_slide_position_buffer(const void *buffer,
     zz = *p;  // flag byte
 
     if (zz & 0xfe) {
-      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                  "Unexpected flag value (%d)", zz);
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Unexpected flag value (%d)", zz);
       g_free(result);
       return NULL;
     }
@@ -1045,20 +924,15 @@ static enum image_format parse_image_format(const char *name, GError **err) {
   } else if (!strcmp(name, "BMP24")) {
     return FORMAT_BMP;
   } else {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Unrecognized image format: %s", name);
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Unrecognized image format: %s",
+                name);
     return FORMAT_UNKNOWN;
   }
 }
 
-static bool add_associated_image(openslide_t *osr,
-                                 FILE *indexfile,
-                                 int64_t nonhier_root,
-                                 int datafile_count,
-                                 char **datafile_paths,
-                                 const char *name,
-                                 int recordno,
-                                 GError **err) {
+static bool add_associated_image(openslide_t *osr, FILE *indexfile, int64_t nonhier_root,
+                                 int datafile_count, char **datafile_paths, const char *name,
+                                 int recordno, GError **err) {
   char *path;
   int64_t size;
   int64_t offset;
@@ -1068,9 +942,8 @@ static bool add_associated_image(openslide_t *osr,
     return true;
   }
 
-  if (!read_nonhier_record(indexfile, nonhier_root,
-                           datafile_count, datafile_paths, recordno,
-                           &path, &size, &offset, err)) {
+  if (!read_nonhier_record(indexfile, nonhier_root, datafile_count, datafile_paths, recordno, &path,
+                           &size, &offset, err)) {
     g_prefix_error(err, "Cannot read %s associated image: ", name);
     return false;
   }
@@ -1078,27 +951,14 @@ static bool add_associated_image(openslide_t *osr,
   return _openslide_jpeg_add_associated_image(osr, name, path, offset, err);
 }
 
-
-static bool process_indexfile(openslide_t *osr,
-			      const char *uuid,
-			      int datafile_count,
-			      char **datafile_paths,
-			      int vimslide_position_record,
-			      int stitching_position_record,
-			      int macro_record,
-			      int label_record,
-			      int thumbnail_record,
-			      int zoom_levels,
-			      int images_x,
-			      int images_y,
-			      double overlap_x,
-			      double overlap_y,
-			      int image_divisions,
-			      const struct slide_zoom_level_params *slide_zoom_level_params,
-			      FILE *indexfile,
-			      struct level **levels,
-			      struct _openslide_hash *quickhash1,
-			      GError **err) {
+static bool process_indexfile(openslide_t *osr, const char *uuid, int datafile_count,
+                              char **datafile_paths, int vimslide_position_record,
+                              int stitching_position_record, int macro_record, int label_record,
+                              int thumbnail_record, int zoom_levels, int images_x, int images_y,
+                              double overlap_x, double overlap_y, int image_divisions,
+                              const struct slide_zoom_level_params *slide_zoom_level_params,
+                              FILE *indexfile, struct level **levels,
+                              struct _openslide_hash *quickhash1, GError **err) {
   char *teststr = NULL;
   bool match;
 
@@ -1152,23 +1012,15 @@ static bool process_indexfile(openslide_t *osr,
     char *slide_position_path;
     int64_t slide_position_size;
     int64_t slide_position_offset;
-    if (!read_nonhier_record(indexfile,
-			     nonhier_root,
-			     datafile_count,
-			     datafile_paths,
-			     slide_position_record,
-			     &slide_position_path,
-			     &slide_position_size,
-			     &slide_position_offset,
-			     err)) {
+    if (!read_nonhier_record(indexfile, nonhier_root, datafile_count, datafile_paths,
+                             slide_position_record, &slide_position_path, &slide_position_size,
+                             &slide_position_offset, err)) {
       g_prefix_error(err, "Cannot read slide position info: ");
       goto DONE;
     }
 
-    slide_position_buffer = read_record_data(slide_position_path,
-                                             slide_position_size,
-                                             slide_position_offset,
-                                             err);
+    slide_position_buffer =
+        read_record_data(slide_position_path, slide_position_size, slide_position_offset, err);
     if (!slide_position_buffer) {
       g_prefix_error(err, "Cannot read slide position record: ");
       goto DONE;
@@ -1177,12 +1029,10 @@ static bool process_indexfile(openslide_t *osr,
     if (slide_position_record == stitching_position_record) {
       // We need to decompress the buffer.
       // Length check happens in inflate_buffer
-      void *decompressed = inflate_buffer(slide_position_buffer,
-                                          slide_position_size,
-                                          slide_position_buffer_size,
-                                          err);
+      void *decompressed = inflate_buffer(slide_position_buffer, slide_position_size,
+                                          slide_position_buffer_size, err);
 
-      g_free(slide_position_buffer); // free the compressed buffer
+      g_free(slide_position_buffer);  // free the compressed buffer
 
       if (decompressed) {
         slide_position_buffer = decompressed;
@@ -1198,10 +1048,8 @@ static bool process_indexfile(openslide_t *osr,
     }
 
     // read in the slide positions
-    slide_positions = read_slide_position_buffer(slide_position_buffer,
-					         slide_position_buffer_size,
-					         slide_zoom_level_params[0].image_concat,
-					         err);
+    slide_positions = read_slide_position_buffer(slide_position_buffer, slide_position_buffer_size,
+                                                 slide_zoom_level_params[0].image_concat, err);
 
     g_free(slide_position_buffer);
 
@@ -1217,79 +1065,47 @@ static bool process_indexfile(openslide_t *osr,
 
     slide_positions = g_new(int, npositions * 2);
     for (int i = 0; i < npositions; i++) {
-      slide_positions[(i * 2)]     = (i % positions_x) *
-                                     (image0_w * image_divisions - overlap_x);
-      slide_positions[(i * 2) + 1] = (i / positions_x) *
-                                     (image0_h * image_divisions - overlap_y);
+      slide_positions[(i * 2)] = (i % positions_x) * (image0_w * image_divisions - overlap_x);
+      slide_positions[(i * 2) + 1] = (i / positions_x) * (image0_h * image_divisions - overlap_y);
     }
   }
 
   // read in the associated images
-  if (!add_associated_image(osr,
-                            indexfile,
-                            nonhier_root,
-                            datafile_count,
-                            datafile_paths,
-                            "macro",
-                            macro_record,
-                            err)) {
+  if (!add_associated_image(osr, indexfile, nonhier_root, datafile_count, datafile_paths, "macro",
+                            macro_record, err)) {
     goto DONE;
   }
-  if (!add_associated_image(osr,
-                            indexfile,
-                            nonhier_root,
-                            datafile_count,
-                            datafile_paths,
-                            "label",
-                            label_record,
-                            err)) {
+  if (!add_associated_image(osr, indexfile, nonhier_root, datafile_count, datafile_paths, "label",
+                            label_record, err)) {
     goto DONE;
   }
-  if (!add_associated_image(osr,
-                            indexfile,
-                            nonhier_root,
-                            datafile_count,
-                            datafile_paths,
-                            "thumbnail",
-                            thumbnail_record,
-                            err)) {
+  if (!add_associated_image(osr, indexfile, nonhier_root, datafile_count, datafile_paths,
+                            "thumbnail", thumbnail_record, err)) {
     goto DONE;
   }
 
   // read hierarchical sections
   if (fseeko(indexfile, hier_root, SEEK_SET) == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Cannot seek to hier sections root");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Cannot seek to hier sections root");
     goto DONE;
   }
 
   ptr = read_le_int32_from_file(indexfile);
   if (ptr == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Can't read initial pointer");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't read initial pointer");
     goto DONE;
   }
 
   // read these pages in
-  if (!process_hier_data_pages_from_indexfile(indexfile,
-					      ptr,
-					      datafile_count,
-					      datafile_paths,
-					      zoom_levels,
-					      levels,
-					      images_x,
-					      images_y,
-					      image_divisions,
-					      slide_zoom_level_params,
-					      slide_positions,
-					      quickhash1,
-					      err)) {
+  if (!process_hier_data_pages_from_indexfile(
+          indexfile, ptr, datafile_count, datafile_paths, zoom_levels, levels, images_x, images_y,
+          image_divisions, slide_zoom_level_params, slide_positions, quickhash1, err)) {
     goto DONE;
   }
 
   success = true;
 
- DONE:
+DONE:
   // deallocate
   g_free(slide_positions);
 
@@ -1311,10 +1127,9 @@ static void add_properties(openslide_t *osr, GKeyFile *kf) {
     for (char **key = keys; *key != NULL; key++) {
       char *value = g_key_file_get_value(kf, *group, *key, NULL);
       if (value) {
-	g_hash_table_insert(osr->properties,
-			    g_strdup_printf("mirax.%s.%s", *group, *key),
-			    g_strdup(value));
-	g_free(value);
+        g_hash_table_insert(osr->properties, g_strdup_printf("mirax.%s.%s", *group, *key),
+                            g_strdup(value));
+        g_free(value);
       }
     }
     g_strfreev(keys);
@@ -1322,13 +1137,9 @@ static void add_properties(openslide_t *osr, GKeyFile *kf) {
   g_strfreev(groups);
 }
 
-static int get_nonhier_name_offset_helper(GKeyFile *keyfile,
-					  int nonhier_count,
-					  const char *group,
-					  const char *target_name,
-					  int *name_count_out,
-					  int *name_index_out,
-					  GError **err) {
+static int get_nonhier_name_offset_helper(GKeyFile *keyfile, int nonhier_count, const char *group,
+                                          const char *target_name, int *name_count_out,
+                                          int *name_index_out, GError **err) {
   GError *tmp_err = NULL;
 
   *name_count_out = 0;
@@ -1355,8 +1166,7 @@ static int get_nonhier_name_offset_helper(GKeyFile *keyfile,
       if (tmp_err) {
         g_propagate_error(err, tmp_err);
       } else {
-        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                    "Nonhier val count is zero");
+        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Nonhier val count is zero");
       }
       g_free(value);
       return -1;
@@ -1376,35 +1186,19 @@ static int get_nonhier_name_offset_helper(GKeyFile *keyfile,
   return -1;
 }
 
-
-static int get_nonhier_name_offset(GKeyFile *keyfile,
-				   int nonhier_count,
-				   const char *group,
-				   const char *target_name,
-				   GError **err) {
+static int get_nonhier_name_offset(GKeyFile *keyfile, int nonhier_count, const char *group,
+                                   const char *target_name, GError **err) {
   int d1, d2;
-  return get_nonhier_name_offset_helper(keyfile,
-					nonhier_count,
-					group,
-					target_name,
-					&d1, &d2,
-					err);
+  return get_nonhier_name_offset_helper(keyfile, nonhier_count, group, target_name, &d1, &d2, err);
 }
 
-static int get_nonhier_val_offset(GKeyFile *keyfile,
-				  int nonhier_count,
-				  const char *group,
-				  const char *target_name,
-				  const char *target_value,
-				  char **section_name,
-				  GError **err) {
+static int get_nonhier_val_offset(GKeyFile *keyfile, int nonhier_count, const char *group,
+                                  const char *target_name, const char *target_value,
+                                  char **section_name, GError **err) {
   int name_count;
   int name_index;
-  int offset = get_nonhier_name_offset_helper(keyfile, nonhier_count,
-					      group, target_name,
-					      &name_count,
-					      &name_index,
-					      err);
+  int offset = get_nonhier_name_offset_helper(keyfile, nonhier_count, group, target_name,
+                                              &name_count, &name_index, err);
   if (offset == -1) {
     return -1;
   }
@@ -1422,8 +1216,7 @@ static int get_nonhier_val_offset(GKeyFile *keyfile,
       g_free(value);
 
       if (section_name != NULL) {
-        char *section_key = g_strdup_printf(KEY_NONHIER_d_VAL_d_SECTION,
-                                            name_index, i);
+        char *section_key = g_strdup_printf(KEY_NONHIER_d_VAL_d_SECTION, name_index, i);
         *section_name = g_key_file_get_value(keyfile, group, section_key, err);
         g_free(section_key);
 
@@ -1443,27 +1236,18 @@ static int get_nonhier_val_offset(GKeyFile *keyfile,
   return -1;
 }
 
-static int get_associated_image_nonhier_offset(GKeyFile *keyfile,
-                                               int nonhier_count,
-                                               const char *group,
-                                               const char *target_name,
+static int get_associated_image_nonhier_offset(GKeyFile *keyfile, int nonhier_count,
+                                               const char *group, const char *target_name,
                                                const char *target_value,
-                                               const char *target_format_key,
-                                               GError **err) {
+                                               const char *target_format_key, GError **err) {
   char *section_name;
-  int offset = get_nonhier_val_offset(keyfile,
-                                      nonhier_count,
-                                      group,
-                                      target_name,
-                                      target_value,
-                                      &section_name,
-                                      err);
+  int offset = get_nonhier_val_offset(keyfile, nonhier_count, group, target_name, target_value,
+                                      &section_name, err);
   if (offset == -1) {
     return -1;
   }
 
-  char *format = g_key_file_get_value(keyfile, section_name,
-                                      target_format_key, err);
+  char *format = g_key_file_get_value(keyfile, section_name, target_format_key, err);
   g_free(section_name);
   if (format == NULL) {
     return -1;
@@ -1509,8 +1293,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   int focus_levels = 0;
   int hier_count = 0;
   int nonhier_count = 0;
-  int position_nonhier_vimslide_offset = -1;  // VIMSLIDE_POSITION_BUFFER
-  int position_nonhier_stitching_offset = -1; // StitchingIntensityLayer
+  int position_nonhier_vimslide_offset = -1;   // VIMSLIDE_POSITION_BUFFER
+  int position_nonhier_stitching_offset = -1;  // StitchingIntensityLayer
   int macro_nonhier_offset = -1;
   int label_nonhier_offset = -1;
   int thumbnail_nonhier_offset = -1;
@@ -1546,8 +1330,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     goto FAIL;
   }
 
-  slidedat = _openslide_read_key_file(tmp, SLIDEDAT_MAX_SIZE,
-                                      G_KEY_FILE_NONE, err);
+  slidedat = _openslide_read_key_file(tmp, SLIDEDAT_MAX_SIZE, G_KEY_FILE_NONE, err);
   if (!slidedat) {
     g_prefix_error(err, "Can't load Slidedat.ini file: ");
     goto FAIL;
@@ -1561,20 +1344,15 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   // load general stuff
   HAVE_GROUP_OR_FAIL(slidedat, GROUP_GENERAL);
 
-  READ_KEY_OR_FAIL(slide_version, slidedat, GROUP_GENERAL,
-                   KEY_SLIDE_VERSION, value);
-  READ_KEY_OR_FAIL(slide_id, slidedat, GROUP_GENERAL,
-                   KEY_SLIDE_ID, value);
-  READ_KEY_OR_FAIL(images_x, slidedat, GROUP_GENERAL,
-                   KEY_IMAGENUMBER_X, integer);
-  READ_KEY_OR_FAIL(images_y, slidedat, GROUP_GENERAL,
-                   KEY_IMAGENUMBER_Y, integer);
-  READ_KEY_OR_FAIL(objective_magnification, slidedat, GROUP_GENERAL,
-                   KEY_OBJECTIVE_MAGNIFICATION, integer);
+  READ_KEY_OR_FAIL(slide_version, slidedat, GROUP_GENERAL, KEY_SLIDE_VERSION, value);
+  READ_KEY_OR_FAIL(slide_id, slidedat, GROUP_GENERAL, KEY_SLIDE_ID, value);
+  READ_KEY_OR_FAIL(images_x, slidedat, GROUP_GENERAL, KEY_IMAGENUMBER_X, integer);
+  READ_KEY_OR_FAIL(images_y, slidedat, GROUP_GENERAL, KEY_IMAGENUMBER_Y, integer);
+  READ_KEY_OR_FAIL(objective_magnification, slidedat, GROUP_GENERAL, KEY_OBJECTIVE_MAGNIFICATION,
+                   integer);
 
   image_divisions = g_key_file_get_integer(slidedat, GROUP_GENERAL,
-					   KEY_CAMERA_IMAGE_DIVISIONS_PER_SIDE,
-					   &tmp_err);
+                                           KEY_CAMERA_IMAGE_DIVISIONS_PER_SIDE, &tmp_err);
   if (tmp_err != NULL) {
     image_divisions = 1;
     g_clear_error(&tmp_err);
@@ -1588,10 +1366,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   // load hierarchical stuff
   HAVE_GROUP_OR_FAIL(slidedat, GROUP_HIERARCHICAL);
 
-  READ_KEY_OR_FAIL(hier_count, slidedat, GROUP_HIERARCHICAL,
-                   KEY_HIER_COUNT, integer);
-  READ_KEY_OR_FAIL(nonhier_count, slidedat, GROUP_HIERARCHICAL,
-                   KEY_NONHIER_COUNT, integer);
+  READ_KEY_OR_FAIL(hier_count, slidedat, GROUP_HIERARCHICAL, KEY_HIER_COUNT, integer);
+  READ_KEY_OR_FAIL(nonhier_count, slidedat, GROUP_HIERARCHICAL, KEY_NONHIER_COUNT, integer);
 
   POSITIVE_OR_FAIL(hier_count);
   NON_NEGATIVE_OR_FAIL(nonhier_count);
@@ -1622,31 +1398,26 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   }
 
   if (slide_zoom_level_value == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Can't find slide zoom level");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't find slide zoom level");
     goto FAIL;
   }
 
   // TODO allow slide_zoom_level_value to be at another hierarchy value
   if (slide_zoom_level_value != 0) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Slide zoom level not HIER_0");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Slide zoom level not HIER_0");
     goto FAIL;
   }
 
   if (slide_focus_level_value == -1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Can't find slide focus level");
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED, "Can't find slide focus level");
     goto FAIL;
   }
 
-  READ_KEY_OR_FAIL(index_filename, slidedat, GROUP_HIERARCHICAL,
-                   KEY_INDEXFILE, value);
-  READ_KEY_OR_FAIL(zoom_levels, slidedat, GROUP_HIERARCHICAL,
-                   key_slide_zoom_level_count, integer);
+  READ_KEY_OR_FAIL(index_filename, slidedat, GROUP_HIERARCHICAL, KEY_INDEXFILE, value);
+  READ_KEY_OR_FAIL(zoom_levels, slidedat, GROUP_HIERARCHICAL, key_slide_zoom_level_count, integer);
   POSITIVE_OR_FAIL(zoom_levels);
-  READ_KEY_OR_FAIL(focus_levels, slidedat, GROUP_HIERARCHICAL,
-                   key_slide_focus_level_count, integer);
+  READ_KEY_OR_FAIL(focus_levels, slidedat, GROUP_HIERARCHICAL, key_slide_focus_level_count,
+                   integer);
   POSITIVE_OR_FAIL(focus_levels);
   nlevels = zoom_levels + focus_levels - 1;
 
@@ -1659,8 +1430,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
       tmp = g_strdup_printf(KEY_HIER_d_VAL_d_SECTION, slide_focus_level_value, i - zoom_levels);
     }
 
-    READ_KEY_OR_FAIL(slide_zoom_level_section_names[i], slidedat,
-                     GROUP_HIERARCHICAL, tmp, value);
+    READ_KEY_OR_FAIL(slide_zoom_level_section_names[i], slidedat, GROUP_HIERARCHICAL, tmp, value);
 
     g_free(tmp);
     tmp = NULL;
@@ -1669,8 +1439,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   // load datafile stuff
   HAVE_GROUP_OR_FAIL(slidedat, GROUP_DATAFILE);
 
-  READ_KEY_OR_FAIL(datafile_count, slidedat, GROUP_DATAFILE,
-                   KEY_FILE_COUNT, integer);
+  READ_KEY_OR_FAIL(datafile_count, slidedat, GROUP_DATAFILE, KEY_FILE_COUNT, integer);
   POSITIVE_OR_FAIL(datafile_count);
 
   datafile_paths = g_new0(char *, datafile_count + 1);
@@ -1699,17 +1468,14 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     char *group = slide_zoom_level_section_names[i];
     HAVE_GROUP_OR_FAIL(slidedat, group);
 
-    READ_KEY_OR_FAIL(hs->concat_exponent, slidedat, group,
-                     KEY_IMAGE_CONCAT_FACTOR, integer);
+    READ_KEY_OR_FAIL(hs->concat_exponent, slidedat, group, KEY_IMAGE_CONCAT_FACTOR, integer);
     READ_KEY_OR_FAIL(hs->overlap_x, slidedat, group, KEY_OVERLAP_X, double);
     READ_KEY_OR_FAIL(hs->overlap_y, slidedat, group, KEY_OVERLAP_Y, double);
     READ_KEY_OR_FAIL(hs->mpp_x, slidedat, group, KEY_MPP_X, double);
     READ_KEY_OR_FAIL(hs->mpp_y, slidedat, group, KEY_MPP_Y, double);
     READ_KEY_OR_FAIL(bgr, slidedat, group, KEY_IMAGE_FILL_COLOR_BGR, integer);
-    READ_KEY_OR_FAIL(hs->image_w, slidedat, group, KEY_DIGITIZER_WIDTH,
-                     integer);
-    READ_KEY_OR_FAIL(hs->image_h, slidedat, group, KEY_DIGITIZER_HEIGHT,
-                     integer);
+    READ_KEY_OR_FAIL(hs->image_w, slidedat, group, KEY_DIGITIZER_WIDTH, integer);
+    READ_KEY_OR_FAIL(hs->image_h, slidedat, group, KEY_DIGITIZER_HEIGHT, integer);
 
     if (i == 0) {
       NON_NEGATIVE_OR_FAIL(hs->concat_exponent);
@@ -1720,10 +1486,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     POSITIVE_OR_FAIL(hs->image_h);
 
     // convert fill color bgr into rgb
-    hs->fill_rgb =
-      ((bgr << 16) & 0x00FF0000) |
-      (bgr & 0x0000FF00) |
-      ((bgr >> 16) & 0x000000FF);
+    hs->fill_rgb = ((bgr << 16) & 0x00FF0000) | (bgr & 0x0000FF00) | ((bgr >> 16) & 0x000000FF);
 
     // read image format
     READ_KEY_OR_FAIL(tmp, slidedat, group, KEY_IMAGE_FORMAT, value);
@@ -1737,46 +1500,28 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 
   // load position stuff
   // find key for position, if present
-  position_nonhier_vimslide_offset = get_nonhier_name_offset(slidedat,
-                                                             nonhier_count,
-                                                             GROUP_HIERARCHICAL,
-                                                             VALUE_VIMSLIDE_POSITION_BUFFER,
-                                                             &tmp_err);
+  position_nonhier_vimslide_offset = get_nonhier_name_offset(
+      slidedat, nonhier_count, GROUP_HIERARCHICAL, VALUE_VIMSLIDE_POSITION_BUFFER, &tmp_err);
   SUCCESSFUL_OR_FAIL(tmp_err);
 
   if (position_nonhier_vimslide_offset == -1) {
-    position_nonhier_stitching_offset = get_nonhier_name_offset(slidedat,
-							        nonhier_count,
-							        GROUP_HIERARCHICAL,
-							        VALUE_STITCHING_INTENSITY_LAYER,
-							        &tmp_err);
+    position_nonhier_stitching_offset = get_nonhier_name_offset(
+        slidedat, nonhier_count, GROUP_HIERARCHICAL, VALUE_STITCHING_INTENSITY_LAYER, &tmp_err);
     SUCCESSFUL_OR_FAIL(tmp_err);
   }
 
   // associated images
-  macro_nonhier_offset = get_associated_image_nonhier_offset(slidedat,
-                                                             nonhier_count,
-                                                             GROUP_HIERARCHICAL,
-                                                             VALUE_SCAN_DATA_LAYER,
-                                                             VALUE_SCAN_DATA_LAYER_MACRO,
-                                                             KEY_MACRO_IMAGE_TYPE,
-                                                             &tmp_err);
+  macro_nonhier_offset = get_associated_image_nonhier_offset(
+      slidedat, nonhier_count, GROUP_HIERARCHICAL, VALUE_SCAN_DATA_LAYER,
+      VALUE_SCAN_DATA_LAYER_MACRO, KEY_MACRO_IMAGE_TYPE, &tmp_err);
   SUCCESSFUL_OR_FAIL(tmp_err);
-  label_nonhier_offset = get_associated_image_nonhier_offset(slidedat,
-                                                             nonhier_count,
-                                                             GROUP_HIERARCHICAL,
-                                                             VALUE_SCAN_DATA_LAYER,
-                                                             VALUE_SCAN_DATA_LAYER_LABEL,
-                                                             KEY_LABEL_IMAGE_TYPE,
-                                                             &tmp_err);
+  label_nonhier_offset = get_associated_image_nonhier_offset(
+      slidedat, nonhier_count, GROUP_HIERARCHICAL, VALUE_SCAN_DATA_LAYER,
+      VALUE_SCAN_DATA_LAYER_LABEL, KEY_LABEL_IMAGE_TYPE, &tmp_err);
   SUCCESSFUL_OR_FAIL(tmp_err);
-  thumbnail_nonhier_offset = get_associated_image_nonhier_offset(slidedat,
-                                                                 nonhier_count,
-                                                                 GROUP_HIERARCHICAL,
-                                                                 VALUE_SCAN_DATA_LAYER,
-                                                                 VALUE_SCAN_DATA_LAYER_THUMBNAIL,
-                                                                 KEY_THUMBNAIL_IMAGE_TYPE,
-                                                                 &tmp_err);
+  thumbnail_nonhier_offset = get_associated_image_nonhier_offset(
+      slidedat, nonhier_count, GROUP_HIERARCHICAL, VALUE_SCAN_DATA_LAYER,
+      VALUE_SCAN_DATA_LAYER_THUMBNAIL, KEY_THUMBNAIL_IMAGE_TYPE, &tmp_err);
   SUCCESSFUL_OR_FAIL(tmp_err);
 
   /*
@@ -1841,8 +1586,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   base_h = 0;
 
   for (int i = 0; i < images_x; i++) {
-    if (((i % image_divisions) != (image_divisions - 1))
-	|| (i == images_x - 1)) {
+    if (((i % image_divisions) != (image_divisions - 1)) || (i == images_x - 1)) {
       // full size
       base_w += slide_zoom_level_sections[0].image_w;
     } else {
@@ -1851,8 +1595,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     }
   }
   for (int i = 0; i < images_y; i++) {
-    if (((i % image_divisions) != (image_divisions - 1))
-	|| (i == images_y - 1)) {
+    if (((i % image_divisions) != (image_divisions - 1)) || (i == images_y - 1)) {
       // full size
       base_h += slide_zoom_level_sections[0].image_h;
     } else {
@@ -1860,7 +1603,6 @@ static bool mirax_open(openslide_t *osr, const char *filename,
       base_h += slide_zoom_level_sections[0].image_h - slide_zoom_level_sections[0].overlap_y;
     }
   }
-
 
   // set up level dimensions and such
   levels = g_new0(struct level *, zoom_levels);
@@ -1875,10 +1617,9 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     // image_concat: number of images concatenated from the original in one
     //               dimension
     total_concat_exponent += hs->concat_exponent;
-    if (total_concat_exponent > (int) sizeof(lp->image_concat) * 8 - 2) {
+    if (total_concat_exponent > (int)sizeof(lp->image_concat) * 8 - 2) {
       g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                  "image_concat exponent too large: %d",
-                  total_concat_exponent);
+                  "image_concat exponent too large: %d", total_concat_exponent);
       goto FAIL;
     }
     lp->image_concat = 1 << total_concat_exponent;
@@ -1889,10 +1630,9 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     //                      depending on image_divisions
     const int positions_per_image = MAX(1, lp->image_concat / image_divisions);
 
-    if (position_nonhier_vimslide_offset != -1
-        || position_nonhier_stitching_offset != -1
-        || slide_zoom_level_sections[0].overlap_x != 0
-        || slide_zoom_level_sections[0].overlap_y != 0) {
+    if (position_nonhier_vimslide_offset != -1 || position_nonhier_stitching_offset != -1 ||
+        slide_zoom_level_sections[0].overlap_x != 0 ||
+        slide_zoom_level_sections[0].overlap_y != 0) {
       // tile_count_divisor: as we record levels, we would prefer to shrink the
       //                     number of tiles, but keep the tile size constant,
       //                     but this only works until we encounter images
@@ -1919,8 +1659,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
       lp->positions_per_tile = positions_per_image;
     }
 
-    l->tile_w = (double) hs->image_w / lp->tiles_per_image;
-    l->tile_h = (double) hs->image_h / lp->tiles_per_image;
+    l->tile_w = (double)hs->image_w / lp->tiles_per_image;
+    l->tile_h = (double)hs->image_h / lp->tiles_per_image;
 
     // images_per_position: for this zoom, how many images (in one dimension)
     //                      come from a single photo?
@@ -1932,10 +1672,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 
     // overlaps are concatenated within images, so our tile size must
     // shrink, once we hit image_divisions
-    lp->tile_advance_x = l->tile_w - ((double) hs->overlap_x /
-        (double) images_per_position);
-    lp->tile_advance_y = l->tile_h - ((double) hs->overlap_y /
-        (double) images_per_position);
+    lp->tile_advance_x = l->tile_w - ((double)hs->overlap_x / (double)images_per_position);
+    lp->tile_advance_y = l->tile_h - ((double)hs->overlap_y / (double)images_per_position);
 
     l->base.w = base_w / lp->image_concat;  // image_concat is powers of 2
     l->base.h = base_h / lp->image_concat;
@@ -1944,9 +1682,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     l->image_height = hs->image_h;
 
     // initialize tile size hints if potentially valid (may be cleared later)
-    if (((int64_t) lp->tile_advance_x) == lp->tile_advance_x &&
-        ((int64_t) lp->tile_advance_y) == lp->tile_advance_y &&
-        lp->tile_advance_x == l->tile_w &&
+    if (((int64_t)lp->tile_advance_x) == lp->tile_advance_x &&
+        ((int64_t)lp->tile_advance_y) == lp->tile_advance_y && lp->tile_advance_x == l->tile_w &&
         lp->tile_advance_y == l->tile_h) {
       l->base.tile_w = lp->tile_advance_x;
       l->base.tile_h = lp->tile_advance_y;
@@ -1954,55 +1691,38 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 
     // override downsample.  level 0 is defined to have a downsample of 1.0,
     // irrespective of its concat_exponent
-    l->base.downsample = lp->image_concat /
-                         slide_zoom_level_params[0].image_concat;
+    l->base.downsample = lp->image_concat / slide_zoom_level_params[0].image_concat;
 
     // create grid
-    l->grid = _openslide_grid_create_tilemap(osr,
-                                             lp->tile_advance_x,
-                                             lp->tile_advance_y,
-                                             read_tile, tile_free);
+    l->grid = _openslide_grid_create_tilemap(osr, lp->tile_advance_x, lp->tile_advance_y, read_tile,
+                                             tile_free);
 
-    //g_debug("level %d tile advance %.10g %.10g, dim %"PRId64" %"PRId64", image size %d %d, tile %g %g, image_concat %d, tile_count_divisor %d, positions_per_tile %d", i, lp->tile_advance_x, lp->tile_advance_y, l->base.w, l->base.h, l->image_width, l->image_height, l->tile_w, l->tile_h, lp->image_concat, lp->tile_count_divisor, lp->positions_per_tile);
+    // g_debug("level %d tile advance %.10g %.10g, dim %"PRId64" %"PRId64", image size %d %d,
+    // tile %g %g, image_concat %d, tile_count_divisor %d, positions_per_tile %d", i,
+    // lp->tile_advance_x, lp->tile_advance_y, l->base.w, l->base.h, l->image_width,
+    // l->image_height, l->tile_w, l->tile_h, lp->image_concat, lp->tile_count_divisor,
+    // lp->positions_per_tile);
   }
 
   // load the position map and build up the tiles
-  if (!process_indexfile(osr,
-			 slide_id,
-			 datafile_count, datafile_paths,
-			 position_nonhier_vimslide_offset,
-			 position_nonhier_stitching_offset,
-			 macro_nonhier_offset,
-			 label_nonhier_offset,
-			 thumbnail_nonhier_offset,
-			 zoom_levels,
-			 images_x, images_y,
-			 slide_zoom_level_sections[0].overlap_x,
-			 slide_zoom_level_sections[0].overlap_y,
-			 image_divisions,
-			 slide_zoom_level_params,
-			 indexfile,
-			 levels,
-			 quickhash1,
-			 err)) {
+  if (!process_indexfile(osr, slide_id, datafile_count, datafile_paths,
+                         position_nonhier_vimslide_offset, position_nonhier_stitching_offset,
+                         macro_nonhier_offset, label_nonhier_offset, thumbnail_nonhier_offset,
+                         zoom_levels, images_x, images_y, slide_zoom_level_sections[0].overlap_x,
+                         slide_zoom_level_sections[0].overlap_y, image_divisions,
+                         slide_zoom_level_params, indexfile, levels, quickhash1, err)) {
     goto FAIL;
   }
 
   // set properties
   _openslide_set_bounds_props_from_grid(osr, levels[0]->grid);
   uint32_t fill = slide_zoom_level_sections[0].fill_rgb;
-  _openslide_set_background_color_prop(osr,
-                                       (fill >> 16) & 0xFF,
-                                       (fill >> 8) & 0xFF,
-                                       fill & 0xFF);
-  g_hash_table_insert(osr->properties,
-                      g_strdup(OPENSLIDE_PROPERTY_NAME_OBJECTIVE_POWER),
+  _openslide_set_background_color_prop(osr, (fill >> 16) & 0xFF, (fill >> 8) & 0xFF, fill & 0xFF);
+  g_hash_table_insert(osr->properties, g_strdup(OPENSLIDE_PROPERTY_NAME_OBJECTIVE_POWER),
                       g_strdup_printf("%d", objective_magnification));
-  g_hash_table_insert(osr->properties,
-                      g_strdup(OPENSLIDE_PROPERTY_NAME_MPP_X),
+  g_hash_table_insert(osr->properties, g_strdup(OPENSLIDE_PROPERTY_NAME_MPP_X),
                       _openslide_format_double(slide_zoom_level_sections[0].mpp_x));
-  g_hash_table_insert(osr->properties,
-                      g_strdup(OPENSLIDE_PROPERTY_NAME_MPP_Y),
+  g_hash_table_insert(osr->properties, g_strdup(OPENSLIDE_PROPERTY_NAME_MPP_Y),
                       _openslide_format_double(slide_zoom_level_sections[0].mpp_y));
 
   /*
@@ -2032,7 +1752,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 
   // populate levels
   g_assert(osr->levels == NULL);
-  osr->levels = (struct _openslide_level **) levels;
+  osr->levels = (struct _openslide_level **)levels;
   levels = NULL;
 
   // set private data
@@ -2048,7 +1768,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   success = true;
   goto DONE;
 
- FAIL:
+FAIL:
   if (levels != NULL) {
     for (int i = 0; i < zoom_levels; i++) {
       struct level *l = levels[i];
@@ -2062,7 +1782,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 
   success = false;
 
- DONE:
+DONE:
   g_free(dirname);
   g_free(tmp);
   g_free(slide_version);
@@ -2088,8 +1808,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 }
 
 const struct _openslide_format _openslide_format_mirax = {
-  .name = "mirax",
-  .vendor = "mirax",
-  .detect = mirax_detect,
-  .open = mirax_open,
+    .name = "mirax",
+    .vendor = "mirax",
+    .detect = mirax_detect,
+    .open = mirax_open,
 };
