@@ -233,7 +233,7 @@ static void openslide_detect_stack(openslide_t *osr) {
                       g_strdup_printf("%d", 0));
   // detect total stacks
   for (int32_t i = 1; i < osr->level_count; i++) {
-    if (osr->levels[i]->downsample < osr->levels[i - 1]->downsample) {
+    if (osr->levels[i]->downsample <= osr->levels[i - 1]->downsample) {
       g_hash_table_insert(osr->properties,
                           g_strdup_printf(_OPENSLIDE_PROPERTY_NAME_TEMPLATE_STACK_INDEX, c),
                           g_strdup_printf("%d", i));
