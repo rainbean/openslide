@@ -847,6 +847,7 @@ static bool hamamatsu_vms_vmu_detect(const char *filename,
   return true;
 }
 
+/*
 static gint width_compare(gconstpointer a, gconstpointer b) {
   int64_t w1 = *((const int64_t *) a);
   int64_t w2 = *((const int64_t *) b);
@@ -855,6 +856,7 @@ static gint width_compare(gconstpointer a, gconstpointer b) {
 
   return (w1 < w2) - (w1 > w2);
 }
+*/
 
 #define CHK(ASSERTION)							\
   do {									\
@@ -1198,6 +1200,7 @@ static void add_properties(openslide_t *osr,
 }
 
 // create scale_denom levels
+/*
 static void create_scaled_jpeg_levels(openslide_t *osr,
                                       int32_t *_level_count,
                                       struct jpeg_level ***_levels) {
@@ -1296,6 +1299,7 @@ static void create_scaled_jpeg_levels(openslide_t *osr,
   *_level_count = level_count;
   *_levels = levels;
 }
+*/
 
 // consumes levels/jpegs, even on failure
 static bool init_jpeg_ops(openslide_t *osr,
@@ -1312,7 +1316,7 @@ static bool init_jpeg_ops(openslide_t *osr,
   osr->data = data;
 
   // create scale_denom levels
-  create_scaled_jpeg_levels(osr, &level_count, &levels);
+  // create_scaled_jpeg_levels(osr, &level_count, &levels);
 
   // populate the level count and array
   g_assert(osr->levels == NULL);
@@ -2238,6 +2242,8 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
   int64_t directories = _openslide_tifflike_get_directory_count(tl);
   int64_t min_width = INT64_MAX;
   int64_t min_width_dir = 0;
+  int64_t last_focal_plane = INT64_MAX;
+  int32_t planes = 0;
   for (int64_t dir = 0; dir < directories; dir++) {
     // read tags
     int64_t width, height, rows_per_strip, start_in_file, num_bytes;
@@ -2267,27 +2273,33 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
     if (lens > 0) {
       // is a pyramid level
 
-      // ignore focal planes != 0
+      // read focal planes
       int64_t focal_plane =
         _openslide_tifflike_get_sint(tl, dir, NDPI_FOCAL_PLANE, &tmp_err);
       if (tmp_err) {
         g_propagate_error(err, tmp_err);
         goto FAIL;
       }
-      if (focal_plane != 0) {
-        continue;
-      }
 
-      // is smallest level?
-      if (width < min_width) {
+      // 1. process downsamples level of plane 0
+      // 2. process first level of other plane(s)
+      // 3. keep current plane num
+      if (focal_plane == 0 && width < min_width) {
+        // is smallest level?
         min_width = width;
         min_width_dir = dir;
+      } else if (last_focal_plane == focal_plane) {
+        // bypass visited focal planes
+        continue;
       } else {
-        // The slide's levels are in an unexpected order.  Reject the slide
-        // out of paranoia.
-        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                    "Unexpected directory layout");
-        goto FAIL;
+        last_focal_plane = focal_plane;
+        planes ++;
+      }
+
+      if (planes > 0 && focal_plane == 0) {
+          g_hash_table_insert(osr->properties,
+                        g_strdup("hamamatsu.BestFocusLayer"),
+                        g_strdup_printf("%d", planes));
       }
 
       // will the JPEG image dimensions be valid?
