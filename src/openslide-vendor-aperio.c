@@ -188,6 +188,18 @@ static bool decode_tile(struct level *l,
   return success;
 }
 
+#define PAINT_INVALID_TILE
+#ifdef PAINT_INVALID_TILE
+static void fill_invalid_tile(int64_t w, int64_t h, uint32_t *dest) {
+  uint32_t color[3] = { 0xffffffff, 0xff000000, 0xff7f7f7f };
+  int c = 0;
+  for (uint32_t *p = dest; p < dest + w * h; p++) {
+      *p = color[c++ / 5];
+      c %= 15;
+    }
+}
+#endif
+
 static bool read_tile(openslide_t *osr,
 		      cairo_t *cr,
 		      struct _openslide_level *level,
@@ -210,8 +222,17 @@ static bool read_tile(openslide_t *osr,
   if (!tiledata) {
     tiledata = g_slice_alloc(tw * th * 4);
     if (!decode_tile(l, tiff, tiledata, tile_col, tile_row, err)) {
+#ifdef PAINT_INVALID_TILE
+      if (*err != NULL) {
+        fprintf (stderr, "Unable to decode tile: %s\n", (*err)->message);
+        g_error_free (*err);
+        *err = NULL;
+      }
+      fill_invalid_tile(tw, th, tiledata);
+#else
       g_slice_free1(tw * th * 4, tiledata);
       return false;
+#endif
     }
 
     // clip, if necessary
