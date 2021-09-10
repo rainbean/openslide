@@ -198,6 +198,17 @@ static void fill_invalid_tile(int64_t w, int64_t h, uint32_t *dest) {
       c %= 15;
     }
 }
+
+static void draw_invalid_tile(int64_t w, int64_t h, uint32_t *dest) {
+  uint32_t *p = dest;
+  for (int j = 0; j <= h; j++) {
+    for (int i = 0; i <= w; i++) {
+      bool isCross = (i >= j - 2 && i <= j + 2) || (i >= h - j - 3 && i <= h - j + 1);
+      p = dest + i*w + j;
+      *p = isCross ? 0x000000ff : 0xffffffff;
+    }
+  }
+}
 #endif
 
 static bool read_tile(openslide_t *osr,
@@ -228,7 +239,7 @@ static bool read_tile(openslide_t *osr,
         g_error_free (*err);
         *err = NULL;
       }
-      fill_invalid_tile(tw, th, tiledata);
+      draw_invalid_tile(tw, th, tiledata);
 #else
       g_slice_free1(tw * th * 4, tiledata);
       return false;
