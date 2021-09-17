@@ -48,6 +48,10 @@ bool _openslide_jpeg_read(const char *filename,
                           int32_t w, int32_t h,
                           GError **err);
 
+bool _openslide_jpeg_bypass_error(uint32_t *dest,
+                                  int32_t w, int32_t h,
+                                  GError **err);
+
 bool _openslide_jpeg_decode_buffer(const void *buf, uint32_t len,
                                    uint32_t *dest,
                                    int32_t w, int32_t h,

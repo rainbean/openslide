@@ -342,6 +342,40 @@ bool _openslide_jpeg_decode_buffer_dimensions(const void *buf, uint32_t len,
   return jpeg_get_dimensions(NULL, buf, len, w, h, err);
 }
 
+
+bool _openslide_jpeg_bypass_error(uint32_t *dest,
+                                  int32_t w, int32_t h,
+                                  GError **err) {
+  if (*err != NULL) {
+    fprintf (stderr, "bypass JPEG decoding error: %s\n", (*err)->message);
+    g_error_free (*err);
+    *err = NULL;
+  } else {
+    return true;
+  }
+
+  uint32_t color[3] = { 0xffffffff, 0xff000000, 0xff7f7f7f };
+  int c = 0;
+  for (uint32_t *p = dest; p < dest + w * h; p++) {
+      *p = color[c++ / 5];
+      c %= 15;
+    }
+
+/*
+  // draw a cross X marker on dest buffer
+  uint32_t *p = dest;
+  for (int j = 0; j <= h; j++) {
+    for (int i = 0; i <= w; i++) {
+      bool isCross = (i >= j - 2 && i <= j + 2) || (i >= h - j - 3 && i <= h - j + 1);
+      p = dest + i*w + j;
+      // *p = isCross ? 0x000000ff : 0xffffffff;
+      *p = isCross ? 0xff000000 : 0xffffffff;
+    }
+  }
+*/
+  return true;
+}
+
 static bool jpeg_decode(FILE *f,  // or:
                         const void *buf, uint32_t buflen,
                         void *dest, bool grayscale,
@@ -379,6 +413,11 @@ static bool jpeg_decode(FILE *f,  // or:
   } else {
     // setjmp has returned again
     _openslide_jpeg_propagate_error(err, dc);
+
+#ifndef THROW_JPEG_DECODE_ERROR
+    // fill dest buffer with marker if error occur
+    result = _openslide_jpeg_bypass_error(dest, w, h, err);
+#endif
   }
 
 DONE:

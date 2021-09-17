@@ -306,6 +306,12 @@ bool _openslide_tiff_read_tile(struct _openslide_tiff_level *tiffl,
                            tiffl->tile_w, tiffl->tile_h,
                            err);
     g_free(buf);
+
+#ifndef THROW_JPEG_DECODE_ERROR
+    // fill dest buffer with marker if error occur
+    ret = _openslide_jpeg_bypass_error(dest, tiffl->tile_w, tiffl->tile_h, err);
+#endif
+
     return ret;
   } else {
     // Fallback: read tile through libtiff
