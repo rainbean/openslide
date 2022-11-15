@@ -223,6 +223,40 @@ static int width_compare(gconstpointer a, gconstpointer b) {
   }
 }
 
+static void huron_set_resolution_prop(openslide_t *osr,
+                                     struct _openslide_tifflike *tl,
+                                     int64_t dir, int32_t tag,
+                                     const char *property_name) {
+  GError *tmp_err = NULL;
+  uint64_t unit = _openslide_tifflike_get_uint(tl, dir,
+                                               TIFFTAG_RESOLUTIONUNIT,
+                                               &tmp_err);
+  if (g_error_matches(tmp_err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_NO_VALUE)) {
+    unit = RESUNIT_INCH;  // default
+    g_clear_error(&tmp_err);
+  } else if (tmp_err) {
+    g_clear_error(&tmp_err);
+    return;
+  }
+
+  double res = _openslide_tifflike_get_float(tl, dir, tag, &tmp_err);
+  if (!tmp_err && unit == RESUNIT_CENTIMETER) {
+    g_hash_table_insert(osr->properties,
+                        g_strdup(property_name),
+                        _openslide_format_double(10000.0 / res));
+  }
+  g_clear_error(&tmp_err);
+}
+
+static void huron_set_props(openslide_t *osr,
+                            struct _openslide_tifflike *tl,
+                            int64_t dir) {
+  // MPP
+  huron_set_resolution_prop(osr, tl, dir, TIFFTAG_XRESOLUTION,
+                            OPENSLIDE_PROPERTY_NAME_MPP_X);
+
+}
+
 static bool huron_open(openslide_t *osr,
                        const char *filename,
                        struct _openslide_tifflike *tl,
@@ -365,6 +399,8 @@ static bool huron_open(openslide_t *osr,
   // put TIFF handle and store tiffcache reference
   _openslide_tiffcache_put(tc, tiff);
   data->tc = tc;
+
+  huron_set_props(osr, tl, 0);
 
   return true;
 
