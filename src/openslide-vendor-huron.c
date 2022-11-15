@@ -163,8 +163,8 @@ static const struct _openslide_ops huron_ops = {
 };
 
 static bool huron_detect(const char *filename G_GNUC_UNUSED,
-                                struct _openslide_tifflike *tl,
-                                GError **err) {
+                         struct _openslide_tifflike *tl,
+                         GError **err) {
   // ensure we have a TIFF
   if (!tl) {
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
@@ -183,8 +183,8 @@ static bool huron_detect(const char *filename G_GNUC_UNUSED,
 
   // check manufacturer name
   const char *maker = _openslide_tifflike_get_buffer(tl, 0,
-                                                          TIFFTAG_MAKE,
-                                                          err);
+                                                     TIFFTAG_MAKE,
+                                                     err);
   if (!maker) {
     return false;
   }
@@ -197,8 +197,8 @@ static bool huron_detect(const char *filename G_GNUC_UNUSED,
 
   // check scanner model
   const char *model = _openslide_tifflike_get_buffer(tl, 0,
-                                                          TIFFTAG_MODEL,
-                                                          err);
+                                                     TIFFTAG_MODEL,
+                                                     err);
   if (!model) {
     return false;
   }
@@ -224,10 +224,10 @@ static int width_compare(gconstpointer a, gconstpointer b) {
 }
 
 static bool huron_open(openslide_t *osr,
-                              const char *filename,
-                              struct _openslide_tifflike *tl,
-                              struct _openslide_hash *quickhash1,
-                              GError **err) {
+                       const char *filename,
+                       struct _openslide_tifflike *tl,
+                       struct _openslide_hash *quickhash1,
+                       GError **err) {
   GPtrArray *level_array = g_ptr_array_new();
 
   // open TIFF
