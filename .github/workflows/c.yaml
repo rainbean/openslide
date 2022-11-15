@@ -16,12 +16,12 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
     - name: Check out repo
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
     - name: Install dependencies
       run: |
         case "${{ matrix.os }}" in
         ubuntu-latest)
-          sudo apt-get update \
+          sudo apt-get update && \
           sudo apt-get install \
             gcc make autoconf automake libtool pkg-config \
             zlib1g-dev \
@@ -64,7 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Check out repo
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
     - name: Install tools
       run: sudo apt-get install doxygen
     - name: Build
@@ -76,7 +76,7 @@ jobs:
         mv html ../artifact/${basename}
         echo "basename=${basename}" >> $GITHUB_ENV
     - name: Archive
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: ${{ env.basename }}
         path: artifact
