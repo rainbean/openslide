@@ -40,6 +40,19 @@
 
 static const char HURON_MAKER[] = "Huron";
 static const char HURON_MODEL[] = "LE";
+static const char MACRO_DESCRIPTION[] = "macro";
+static const char LABEL_DESCRIPTION[] = "label";
+
+#define GET_FIELD_OR_FAIL(tiff, tag, type, result)               \
+  do {                                                           \
+    type tmp;                                                    \
+    if (!TIFFGetField(tiff, tag, &tmp)) {                        \
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,  \
+                  "Cannot get required TIFF tag: %d", tag);      \
+      goto FAIL;                                                 \
+    }                                                            \
+    result = tmp;                                                \
+  } while (0)
 
 struct huron_ops_data {
   struct _openslide_tiffcache *tc;
@@ -191,7 +204,7 @@ static bool huron_detect(const char *filename G_GNUC_UNUSED,
   }
   if (!g_str_has_prefix(model, HURON_MODEL)) {
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Not valid Huron model");
+                "Not valid scanner model");
     return false;
   }
   return true;
@@ -226,21 +239,62 @@ static bool huron_open(openslide_t *osr,
 
   // accumulate tiled levels
   do {
-    // confirm that this directory is tiled
-    if (!TIFFIsTiled(tiff)) {
+    // get directory
+    tdir_t dir = TIFFCurrentDirectory(tiff);
+
+    uint32_t subfiletype = 0;
+    if (!TIFFGetField(tiff, TIFFTAG_SUBFILETYPE, &subfiletype)) {
+      fprintf(stderr, "failed to fetch subfiletype at dir %d\n", dir);
       continue;
     }
 
-    // confirm it is either the first image, or reduced-resolution
-    if (TIFFCurrentDirectory(tiff) != 0) {
-      uint32_t subfiletype;
-      if (!TIFFGetField(tiff, TIFFTAG_SUBFILETYPE, &subfiletype)) {
+    // fprintf(stderr, "dir[%d], subtype[%d]\n", dir, subfiletype);
+
+    // non-tile flat-image
+    if (!TIFFIsTiled(tiff)) {
+      // read image dimension
+      int64_t iw = 0, ih = 0, ir = 0;
+      GET_FIELD_OR_FAIL(tiff, TIFFTAG_IMAGEWIDTH, uint32_t, iw);
+      GET_FIELD_OR_FAIL(tiff, TIFFTAG_IMAGELENGTH, uint32_t, ih);
+      GET_FIELD_OR_FAIL(tiff, TIFFTAG_ROWSPERSTRIP, uint32_t, ir);
+
+      if ((ir != 1) || (iw <= 0) || (ih <= 0)) {
         continue;
       }
 
-      if (!(subfiletype & FILETYPE_REDUCEDIMAGE)) {
+      // read ImageDescription
+      char *image_desc;
+      if (!TIFFGetField(tiff, TIFFTAG_IMAGEDESCRIPTION, &image_desc)) {
         continue;
       }
+      image_desc = g_strstrip(image_desc); // Removes leading and trailing whitespace from a string
+
+      if ((dir == 1) && (subfiletype == 0)) {
+        fprintf(stderr, "todo: save thumbnail at dir %d\n", dir);
+        if (!_openslide_tiff_add_associated_image(osr, "thumbnail", tc, dir, err)) {
+          goto FAIL;
+        }
+      } else if (image_desc && g_str_has_prefix(image_desc, LABEL_DESCRIPTION)) {
+        if (!_openslide_tiff_add_associated_image(osr, "label", tc, dir, err)) {
+          goto FAIL;
+        }
+      } else if (image_desc && g_str_has_prefix(image_desc, MACRO_DESCRIPTION)) {
+        if (!_openslide_tiff_add_associated_image(osr, "macro", tc, dir, err)) {
+          goto FAIL;
+        }
+      } else {
+        // fprintf(stderr, "unsupported sub-type %d at dir %d\n", subfiletype, dir);
+        //g_debug("unsupported sub-type %d at dir %d", subfiletype, dir);
+      }
+
+      // end of non-tile handling
+      continue;
+    }
+
+    // tiled directory, either page or reduced-resolution
+    if (!(subfiletype & FILETYPE_REDUCEDIMAGE) && !(subfiletype & FILETYPE_PAGE)) {
+      //g_debug("unsupported sub-type %d", dir);
+      continue;
     }
 
     // verify that we can read this compression (hard fail if not)
