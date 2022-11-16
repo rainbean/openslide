@@ -282,8 +282,6 @@ static bool huron_open(openslide_t *osr,
       continue;
     }
 
-    // fprintf(stderr, "dir[%d], subtype[%d]\n", dir, subfiletype);
-
     // non-tile flat-image
     if (!TIFFIsTiled(tiff)) {
       // read image dimension
@@ -304,7 +302,6 @@ static bool huron_open(openslide_t *osr,
       image_desc = g_strstrip(image_desc); // Removes leading and trailing whitespace from a string
 
       if ((dir == 1) && (subfiletype == 0)) {
-        fprintf(stderr, "todo: save thumbnail at dir %d\n", dir);
         if (!_openslide_tiff_add_associated_image(osr, "thumbnail", tc, dir, err)) {
           goto FAIL;
         }
@@ -325,11 +322,7 @@ static bool huron_open(openslide_t *osr,
       continue;
     }
 
-    // tiled directory, either page or reduced-resolution
-    if (!(subfiletype & FILETYPE_REDUCEDIMAGE) && !(subfiletype & FILETYPE_PAGE)) {
-      //g_debug("unsupported sub-type %d", dir);
-      continue;
-    }
+    // handle tiled directory now, ignore subtype
 
     // verify that we can read this compression (hard fail if not)
     uint16_t compression;
