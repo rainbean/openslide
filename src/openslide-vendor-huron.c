@@ -341,7 +341,7 @@ static bool huron_open(openslide_t *osr,
     struct level *l = g_slice_new0(struct level);
     struct _openslide_tiff_level *tiffl = &l->tiffl;
     if (!_openslide_tiff_level_init(tiff,
-                                    TIFFCurrentDirectory(tiff),
+                                    dir,
                                     (struct _openslide_level *) l,
                                     tiffl,
                                     err)) {
