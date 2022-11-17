@@ -29,7 +29,15 @@ LT_INIT([win32-dll disable-static])
 LT_LANG([Windows Resource])
 
 # Windows resources and manifest
-AM_CONDITIONAL([WINDOWS_RESOURCES], [test $host_os = mingw32])
+AS_CASE([$host_os],
+  [mingw32*], [
+    AM_CONDITIONAL([WINDOWS_RESOURCES], [true])
+  ],
+  [
+    # Default
+    AM_CONDITIONAL([WINDOWS_RESOURCES], [false])
+  ]
+)
 WINDOWS_VERSIONINFO=$(echo "${VERSION}.0.0.0" | cut -f1-4 -d. | tr . ,)
 AC_SUBST([WINDOWS_VERSIONINFO])
 
@@ -82,7 +90,7 @@ gl_VISIBILITY
 # CLOEXEC
 AC_MSG_CHECKING([fopen() close-on-exec flag])
 AS_CASE([$host_os],
-  [mingw32], [
+  [mingw32*], [
     # Assume that if we're building for Windows, we want to pass N to fopen().
     AC_MSG_RESULT([N])
     AC_DEFINE([FOPEN_CLOEXEC_FLAG], ["N"], [Set to the fopen() flag string that sets FD_CLOEXEC, or an empty string if not supported.])
@@ -146,25 +154,33 @@ AC_LINK_IFELSE([
 
 # The test driver has special support for testing Windows builds from Cygwin
 AC_MSG_CHECKING([whether to cross-test from Cygwin])
-if test "$host_os" = "mingw32" -a "$build_os" = "cygwin"; then
-  AC_MSG_RESULT([yes])
-  CYGWIN_CROSS_TEST=yes
-else
-  AC_MSG_RESULT([no])
-  CYGWIN_CROSS_TEST=""
-fi
+AS_CASE(["${host_os}+${build_os}"],
+  [mingw32*+cygwin*], [
+    AC_MSG_RESULT([yes])
+    CYGWIN_CROSS_TEST=yes
+  ],
+  [
+    # default
+    AC_MSG_RESULT([no])
+    CYGWIN_CROSS_TEST=""
+  ]
+)
 AC_SUBST([CYGWIN_CROSS_TEST])
 AM_CONDITIONAL([CYGWIN_CROSS_TEST], [test -n "$CYGWIN_CROSS_TEST"])
 
 # prevents Windows.h from defining IN or OUT parameter modifier
 AC_MSG_CHECKING([whether to disable IN/OUT modifier])
-if test "$host_os" = "mingw32"; then
-  AC_MSG_RESULT([yes])
-  CFLAG_NO_PSEUDO_MODIFIERS=-D_NO_W32_PSEUDO_MODIFIERS
-else
-  AC_MSG_RESULT([no])
-  CFLAG_NO_PSEUDO_MODIFIERS=""
-fi
+AS_CASE([$host_os],
+  [mingw32*], [
+    AC_MSG_RESULT([yes])
+    CFLAG_NO_PSEUDO_MODIFIERS=-D_NO_W32_PSEUDO_MODIFIERS
+  ],
+  [
+    # default
+    AC_MSG_RESULT([no])
+    CFLAG_NO_PSEUDO_MODIFIERS=""
+  ]
+)
 AC_SUBST([CFLAG_NO_PSEUDO_MODIFIERS])
 
 # gcc assumes Win32 stack frames are 16-byte-aligned by default, but the
@@ -180,8 +196,8 @@ AC_SUBST([CFLAG_NO_PSEUDO_MODIFIERS])
 AC_ARG_ENABLE([checking-windows-abi-compat],
               AS_HELP_STRING([--disable-checking-windows-abi-compat],
                              [don't override default calling convention when testing on Windows]))
-AS_CASE([$host],
-  [i*86-*-mingw32], [
+AS_CASE([$host_os],
+  [mingw32*], [
     AC_MSG_CHECKING([whether to test with Windows calling convention])
     AS_IF([test "$enable_checking_windows_abi_compat" != "no"], [
       AC_MSG_RESULT([yes])
