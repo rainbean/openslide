@@ -5,11 +5,12 @@ on:
     tags:
       - '*'
 
+permissions:
+  contents: write
+
 jobs:
-  test:
+  release:
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
     steps:
     - name: Check out repo
       uses: actions/checkout@v3
