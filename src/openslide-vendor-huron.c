@@ -179,8 +179,6 @@ static bool huron_detect(const char *filename G_GNUC_UNUSED,
     return false;
   }
 
-  return true;
-
   // check manufacturer name
   const char *maker = _openslide_tifflike_get_buffer(tl, 0,
                                                      TIFFTAG_MAKE,
