@@ -39,7 +39,6 @@
 #include <tiffio.h>
 
 static const char HURON_MAKER[] = "Huron";
-static const char HURON_MODEL[] = "LE";
 static const char MACRO_DESCRIPTION[] = "macro";
 static const char LABEL_DESCRIPTION[] = "label";
 
@@ -190,19 +189,6 @@ static bool huron_detect(const char *filename G_GNUC_UNUSED,
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                 "Not a Huron slide");
     
-    return false;
-  }
-
-  // check scanner model
-  const char *model = _openslide_tifflike_get_buffer(tl, 0,
-                                                     TIFFTAG_MODEL,
-                                                     err);
-  if (!model) {
-    return false;
-  }
-  if (!g_str_has_prefix(model, HURON_MODEL)) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Not valid scanner model");
     return false;
   }
   return true;
