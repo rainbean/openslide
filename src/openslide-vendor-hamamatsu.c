@@ -336,6 +336,12 @@ static bool find_bitstream_start(struct _openslide_file *f,
                   "Couldn't read JPEG marker at %"PRId64, pos);
       return false;
     }
+    if (buf[0] == 0 && buf[1] == 0) {
+      g_set_error(err, OPENSLIDE_HAMAMATSU_ERROR,
+                  OPENSLIDE_HAMAMATSU_ERROR_NO_RESTART_MARKERS,
+                  "Reset markers");
+      return false;
+    }
     if (buf[0] != 0xFF) {
       g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                   "Expected marker at %"PRId64", found none", pos);
@@ -643,7 +649,8 @@ static bool read_from_jpeg(openslide_t *osr,
   } else {
     // setjmp returns again
     _openslide_jpeg_propagate_error(err, dc);
-    return false;
+    // fill dest buffer with marker if error occur
+    return _openslide_jpeg_bypass_error(dest, w, h, err);
   }
 }
 
