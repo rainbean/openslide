@@ -253,7 +253,8 @@ static bool decode_jpeg(const void *buf, uint32_t buflen,
   } else {
     // setjmp has returned again
     _openslide_jpeg_propagate_error(err, dc);
-    return false;
+    // fill dest buffer with marker if error occur
+    return _openslide_jpeg_bypass_error(dest, w, h, err);
   }
 }
 
