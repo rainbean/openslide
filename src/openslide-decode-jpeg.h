@@ -65,6 +65,10 @@ bool _openslide_jpeg_decode_buffer_colorspace(const void *buf, uint32_t len,
                                               int32_t w, int32_t h,
                                               GError **err);
 
+bool _openslide_jpeg_bypass_error(uint32_t *dest,
+                                  int32_t w, int32_t h,
+                                  GError **err);
+
 bool _openslide_jpeg_decode_buffer_gray(const void *buf, uint32_t len,
                                         uint8_t *dest,
                                         int32_t w, int32_t h,
