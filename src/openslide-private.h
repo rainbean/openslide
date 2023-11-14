@@ -363,6 +363,8 @@ void _openslide_performance_warn_once(gint *warned_flag,
 
 // private properties, for now
 #define _OPENSLIDE_PROPERTY_NAME_LEVEL_COUNT "openslide.level-count"
+#define _OPENSLIDE_PROPERTY_NAME_STACK_COUNT "openslide.stack-count"
+#define _OPENSLIDE_PROPERTY_NAME_TEMPLATE_STACK_INDEX "openslide.stack[%d].level-index"
 #define _OPENSLIDE_PROPERTY_NAME_TEMPLATE_LEVEL_WIDTH "openslide.level[%d].width"
 #define _OPENSLIDE_PROPERTY_NAME_TEMPLATE_LEVEL_HEIGHT "openslide.level[%d].height"
 #define _OPENSLIDE_PROPERTY_NAME_TEMPLATE_LEVEL_DOWNSAMPLE "openslide.level[%d].downsample"
