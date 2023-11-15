@@ -451,11 +451,6 @@ static bool aperio_open(openslide_t *osr,
       //g_debug("tiled directory: %d", dir);
       struct level *l = g_new0(struct level, 1);
       struct _openslide_tiff_level *tiffl = &l->tiffl;
-      if (level_array->len) {
-        l->prev = level_array->pdata[level_array->len - 1];
-      }
-      g_ptr_array_add(level_array, l);
-
       if (!_openslide_tiff_level_init(ct.tiff,
                                       dir,
                                       (struct _openslide_level *) l,
@@ -463,6 +458,16 @@ static bool aperio_open(openslide_t *osr,
                                       err)) {
         return false;
       }
+
+      if (level_array->len) {
+        l->prev = level_array->pdata[level_array->len - 1];
+        if (l->prev->tiffl.tiles_down != tiffl->tiles_down) {
+          // bypass downsample levels
+          destroy_level(l);
+          continue;
+        }
+      }
+      g_ptr_array_add(level_array, l);
 
       l->grid = _openslide_grid_create_simple(osr,
                                               tiffl->tiles_across,
