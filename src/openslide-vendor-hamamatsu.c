@@ -649,8 +649,7 @@ static bool read_from_jpeg(openslide_t *osr,
   } else {
     // setjmp returns again
     _openslide_jpeg_propagate_error(err, dc);
-    // fill dest buffer with marker if error occur
-    return _openslide_jpeg_bypass_error(dest, w, h, err);
+    return false;
   }
 }
 
@@ -692,7 +691,8 @@ static bool read_jpeg_tile(openslide_t *osr,
                         l->scale_denom,
                         buf, tw, th,
                         err)) {
-      return false;
+      // fill dest buffer with marker if error occur
+      return _openslide_jpeg_bypass_error(buf, tw, th, err);
     }
 
     tiledata = g_steal_pointer(&buf);
