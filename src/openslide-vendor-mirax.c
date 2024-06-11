@@ -895,8 +895,21 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
     // notice: there are two kinds of page address table:
     // the first: straightfoward sequential, in 4 bytes: zoom level > ... > focus level
     // the second: seperated heir block
-    // assume its first type here
-    seek_location += 240;
+#define HEIR_BLOCK_LEN 240
+
+    // peek end of block of page index table
+    if (!_openslide_fseek(f, seek_location+HEIR_BLOCK_LEN-4, SEEK_SET, err)) {
+      g_prefix_error(err, "Cannot seek to next block data pages: ");
+      return false;
+    }
+
+    // if it's zero then jump to next block, otherwise read sequential address
+    if (read_le_int32_from_file(f) == 0) {
+      seek_location += HEIR_BLOCK_LEN;
+    } else {
+      seek_location += 4;
+    }
+
   }
 
   return true;
