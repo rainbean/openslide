@@ -51,6 +51,7 @@ static const char KEY_IMAGENUMBER_X[] = "IMAGENUMBER_X";
 static const char KEY_IMAGENUMBER_Y[] = "IMAGENUMBER_Y";
 static const char KEY_OBJECTIVE_MAGNIFICATION[] = "OBJECTIVE_MAGNIFICATION";
 static const char KEY_CAMERA_IMAGE_DIVISIONS_PER_SIDE[] = "CameraImageDivisionsPerSide";
+static const char KEY_SLIDE_VERSION[] = "CURRENT_SLIDE_VERSION";
 
 static const char GROUP_HIERARCHICAL[] = "HIERARCHICAL";
 static const char KEY_HIER_COUNT[] = "HIER_COUNT";
@@ -681,6 +682,7 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
 						   int images_across,
 						   int images_down,
 						   int image_divisions,
+						   double slide_version,
 						   const struct slide_zoom_level_params *slide_zoom_level_params,
 						   int32_t *slide_positions,
 						   struct _openslide_hash *quickhash1,
@@ -892,22 +894,10 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
     } while (next_ptr != 0);
 
     // jump to next block region of focus level
-    // notice: there are two kinds of page address table:
-    // the first: straightfoward sequential, in 4 bytes: zoom level > ... > focus level
-    // the second: seperated heir block
-#define HEIR_BLOCK_LEN 240
-
-    // peek end of block of page index table
-    if (!_openslide_fseek(f, seek_location+HEIR_BLOCK_LEN-4, SEEK_SET, err)) {
-      g_prefix_error(err, "Cannot seek to next block data pages: ");
-      return false;
-    }
-
-    // if it's zero then jump to next block, otherwise read sequential address
-    if (read_le_int32_from_file(f) == 0) {
-      seek_location += HEIR_BLOCK_LEN;
+    if (slide_version >= 2.5) {
+      seek_location += 108;
     } else {
-      seek_location += 4;
+      seek_location += 240;
     }
 
   }
@@ -1042,6 +1032,7 @@ static bool process_indexfile(openslide_t *osr,
 			      double overlap_x,
 			      double overlap_y,
 			      int image_divisions,
+			      double slide_version,
 			      const struct slide_zoom_level_params *slide_zoom_level_params,
 			      struct _openslide_file *indexfile,
 			      struct level **levels,
@@ -1209,6 +1200,7 @@ static bool process_indexfile(openslide_t *osr,
 					      images_x,
 					      images_y,
 					      image_divisions,
+					      slide_version,
 					      slide_zoom_level_params,
 					      slide_positions,
 					      quickhash1,
@@ -1427,6 +1419,9 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   int objective_magnification = 0;
   READ_KEY_OR_FAIL(objective_magnification, slidedat, GROUP_GENERAL,
                    KEY_OBJECTIVE_MAGNIFICATION, integer);
+  double slide_version = 0.0;
+  READ_KEY_OR_FAIL(slide_version, slidedat, GROUP_GENERAL,
+                   KEY_SLIDE_VERSION, double);
 
   GError *tmp_err = NULL;
   int image_divisions =
@@ -1814,6 +1809,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 			 slide_zoom_level_sections[0].overlap_x,
 			 slide_zoom_level_sections[0].overlap_y,
 			 image_divisions,
+			 slide_version,
 			 slide_zoom_level_params,
 			 indexfile,
 			 (struct level **) level_array->pdata,
