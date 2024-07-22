@@ -806,6 +806,11 @@ static bool ventana_open(openslide_t *osr, const char *filename,
       }
       double downsample = level0_magnification / magnification;
 
+      if (downsample != 1.0) {
+        // bypass downsample levels
+        continue;
+      }
+
       // if first level, parse tile info
       if (level == 0) {
         // get XML
