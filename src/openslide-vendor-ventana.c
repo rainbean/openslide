@@ -68,6 +68,8 @@ static const char ATTR_OVERLAP_X[] = "OverlapX";
 static const char ATTR_OVERLAP_Y[] = "OverlapY";
 static const char DIRECTION_RIGHT[] = "RIGHT";
 static const char DIRECTION_UP[] = "UP";
+static const char DIRECTION_LEFT[] = "LEFT";
+static const char DIRECTION_DOWN[] = "DOWN";
 
 #define PARSE_INT_ATTRIBUTE_OR_RETURN(NODE, NAME, OUT, RET)	\
   do {								\
@@ -560,13 +562,15 @@ static struct bif *parse_level0_xml(const char *xml,
       bool ok;
       bool direction_y = false;
       //g_debug("%s, tile1 %"PRId64" %"PRId64", tile2 %"PRId64" %"PRId64, (char *) direction, tile1_col, tile1_row, tile2_col, tile2_row);
-      if (!xmlStrcmp(direction, BAD_CAST DIRECTION_RIGHT)) {
+      if (!xmlStrcmp(direction, BAD_CAST DIRECTION_RIGHT) ||
+          !xmlStrcmp(direction, BAD_CAST DIRECTION_LEFT)) {
         // get left joint of right tile
         struct tile *tile =
           &area->tiles[tile2_row * area->tiles_across + tile2_col];
         joint = &tile->left;
         ok = (tile2_col == tile1_col + 1 && tile2_row == tile1_row);
-      } else if (!xmlStrcmp(direction, BAD_CAST DIRECTION_UP)) {
+      } else if (!xmlStrcmp(direction, BAD_CAST DIRECTION_UP) ||
+                 !xmlStrcmp(direction, BAD_CAST DIRECTION_DOWN)) {
         // get top joint of bottom tile
         struct tile *tile =
           &area->tiles[tile1_row * area->tiles_across + tile1_col];
