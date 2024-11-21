@@ -764,6 +764,17 @@ static bool add_associated(openslide_t *osr,
   return true;
 }
 
+static bool is_down_sample_level(GPtrArray *level_array,
+                                     int64_t w, int64_t h) {
+  if (level_array->len > 0) {
+    struct dicom_level *l = (struct dicom_level *) level_array->pdata[0];
+    if (l->base.w > w || l->base.h > h) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static struct dicom_level *find_level_by_dimensions(GPtrArray *level_array,
                                                     int64_t w, int64_t h) {
   for (guint i = 0; i < level_array->len; i++) {
@@ -821,6 +832,13 @@ static bool add_level(openslide_t *osr,
                                           tiles_across, tiles_down,
                                           l->base.tile_w, l->base.tile_h,
                                           read_tile);
+
+  // bypass down-sample levels
+  if (is_down_sample_level(level_array, l->base.w, l->base.h)) {
+    return true;
+  }
+
+  // TODO: handle multiple z stack case
 
   // is this level already there?  if the SOP instance UIDs match, someone
   // duplicated a file; ignore it.  otherwise there's something about this
