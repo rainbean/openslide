@@ -2204,10 +2204,9 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
           jp_w = jp_tw = width;
           jp_h = jp_th = height;
         } else {
-          g_propagate_prefixed_error(err, tmp_err,
-                                     "Can't validate JPEG for directory "
-                                     "%"PRId64": ", dir);
-          return false;
+          g_clear_error(&tmp_err);
+          g_warning("corrupted JPEG header for directory %ld, bypass decoding", dir);
+          continue;
         }
       }
       if (width != jp_w || height != jp_h) {
