@@ -246,6 +246,14 @@ static bool generic_tiff_open(openslide_t *osr,
                                     err)) {
       return false;
     }
+    // fork-local: expose only full-resolution levels; bypass down-sample
+    // (reduced-resolution) directories
+    if (level_array->len > 0) {
+      struct level *base = level_array->pdata[0];
+      if (l->base.w < base->base.w || l->base.h < base->base.h) {
+        continue;
+      }
+    }
     l->grid = _openslide_grid_create_simple(osr,
                                             tiffl->tiles_across,
                                             tiffl->tiles_down,

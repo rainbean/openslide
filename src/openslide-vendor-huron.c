@@ -234,14 +234,25 @@ static bool huron_open(openslide_t *osr,
       //g_debug("tiled directory: %d", dir);
       struct level *l = g_new0(struct level, 1);
       struct _openslide_tiff_level *tiffl = &l->tiffl;
-      g_ptr_array_add(level_array, l);
 
       if (!_openslide_tiff_level_init(ct.tiff,
                                       dir,
                                       (struct _openslide_level *) l,
                                       tiffl,
                                       err)) {
+        destroy_level(l);
         return false;
+      }
+
+      // fork-local: expose only full-resolution levels; bypass down-sample
+      // levels.  Focal planes share the base dimensions and are kept; smaller
+      // (pyramid) directories are skipped.
+      if (level_array->len > 0) {
+        struct level *base = level_array->pdata[0];
+        if (l->base.w < base->base.w || l->base.h < base->base.h) {
+          destroy_level(l);
+          continue;
+        }
       }
 
       l->grid = _openslide_grid_create_simple(osr,
@@ -250,6 +261,8 @@ static bool huron_open(openslide_t *osr,
                                               tiffl->tile_w,
                                               tiffl->tile_h,
                                               read_tile);
+
+      g_ptr_array_add(level_array, l);
 
     } else {
       // associated image
