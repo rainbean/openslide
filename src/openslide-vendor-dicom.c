@@ -705,6 +705,18 @@ static bool add_associated(openslide_t *osr,
   return true;
 }
 
+// fork-local: is this level smaller than the base (largest) level?
+static bool is_down_sample_level(GPtrArray *level_array,
+                                 int64_t w, int64_t h) {
+  if (level_array->len > 0) {
+    struct dicom_level *l = (struct dicom_level *) level_array->pdata[0];
+    if (l->base.w > w || l->base.h > h) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static bool find_level_by_dimensions(GPtrArray *level_array,
                                      GPtrArray *level_files_array,
                                      int64_t w, int64_t h,
@@ -752,6 +764,13 @@ static bool add_level_file(openslide_t *osr,
   }
   // zero-index
   file_num--;
+
+  // fork-local: expose only the largest level; bypass down-sample levels.
+  // The base level is added first, so it occupies level_array[0].
+  // TODO: handle multiple z stack case
+  if (is_down_sample_level(level_array, level_width, level_height)) {
+    return true;
+  }
 
   struct dicom_level *l;
   GPtrArray *files;
