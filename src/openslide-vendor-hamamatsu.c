@@ -164,6 +164,16 @@ struct ngr_level {
   int32_t column_width;
 };
 
+// fork-local: specific error so corrupted-tile handling can be told apart
+// from generic JPEG errors (upstream dropped this quark in its NDPI rework)
+enum OpenSlideHamamatsuError {
+  // JPEG does not contain restart markers
+  OPENSLIDE_HAMAMATSU_ERROR_NO_RESTART_MARKERS,
+};
+static G_DEFINE_QUARK(openslide-hamamatsu-error-quark,
+                      _openslide_hamamatsu_error)
+#define OPENSLIDE_HAMAMATSU_ERROR _openslide_hamamatsu_error_quark()
+
 /*
  * Source manager for reading a run of MCUs between two restart markers
  * as a complete JPEG.  Originally based on jdatasrc.c from IJG libjpeg.
@@ -322,6 +332,14 @@ static uint8_t *load_jpeg_header(struct _openslide_file *f,
       return NULL;
     }
     g_byte_array_append(data, buf, sizeof(buf));
+    if (buf[0] == 0 && buf[1] == 0) {
+      // corrupted/missing bitstream: signal a specific error so the NDPI
+      // directory loop can tolerate it and bypass decoding (fork-local)
+      g_set_error(err, OPENSLIDE_HAMAMATSU_ERROR,
+                  OPENSLIDE_HAMAMATSU_ERROR_NO_RESTART_MARKERS,
+                  "Reset markers");
+      return NULL;
+    }
     if (buf[0] != 0xFF) {
       g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                   "Expected marker at %"PRId64", found none", pos);
@@ -682,7 +700,8 @@ static bool read_jpeg_tile(openslide_t *osr,
                         l->scale_denom,
                         buf, tw, th,
                         err)) {
-      return false;
+      // fill dest buffer with marker if error occur
+      return _openslide_jpeg_bypass_error(buf, tw, th, err);
     }
 
     tiledata = g_steal_pointer(&buf);
@@ -841,6 +860,7 @@ static bool hamamatsu_vms_vmu_detect(const char *filename,
   return true;
 }
 
+#if 0
 static gint width_compare(gconstpointer a, gconstpointer b) {
   int64_t w1 = *((const int64_t *) a);
   int64_t w2 = *((const int64_t *) b);
@@ -849,6 +869,7 @@ static gint width_compare(gconstpointer a, gconstpointer b) {
 
   return (w1 < w2) - (w1 > w2);
 }
+#endif
 
 #define CHK(ASSERTION)							\
   do {									\
@@ -1186,6 +1207,7 @@ static void add_properties(openslide_t *osr,
                    OPENSLIDE_PROPERTY_NAME_MPP_Y);
 }
 
+#if 0
 // create scale_denom levels
 static void create_scaled_jpeg_levels(openslide_t *osr,
                                       GPtrArray *levels) {
@@ -1264,6 +1286,7 @@ static void create_scaled_jpeg_levels(openslide_t *osr,
     level_keys = g_list_delete_link(level_keys, level_keys);
   }
 }
+#endif
 
 typedef openslide_t jpeg_osr;
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(jpeg_osr, jpeg_do_destroy)
@@ -1284,9 +1307,6 @@ static bool init_jpeg_ops(openslide_t *_osr,
   data->all_jpegs = (struct jpeg **)
     g_ptr_array_free(g_steal_pointer(&setup->jpegs), false);
   osr->data = data;
-
-  // create scale_denom levels
-  create_scaled_jpeg_levels(osr, setup->levels);
 
   // populate the level count and array
   g_assert(osr->levels == NULL);
@@ -2161,8 +2181,9 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
 
   // walk directories
   int64_t directories = _openslide_tifflike_get_directory_count(tl);
-  int64_t min_width = INT64_MAX;
-  int64_t min_width_dir = 0;
+  int64_t base_w = 0;
+  int64_t base_h = 0;
+  int64_t best_focal_level = -1;
   for (int64_t dir = 0; dir < directories; dir++) {
     // read tags
     int64_t width, height, start_in_file, num_bytes;
@@ -2197,8 +2218,13 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
         g_propagate_error(err, tmp_err);
         return false;
       }
-      if (focal_plane != 0) {
-        continue;
+
+      // keep best focal level info
+      if (focal_plane == 0 && best_focal_level == -1) {
+        best_focal_level = setup->levels->len; // zero based
+        g_hash_table_insert(osr->properties,
+                        g_strdup("hamamatsu.BestFocusLayer"),
+                        g_strdup_printf("%ld", best_focal_level));
       }
 
       // will the JPEG image dimensions be valid?
@@ -2221,9 +2247,12 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
                                 &header_data,
                                 &header_sof_offset, &header_length,
                                 NULL, err)) {
-        g_prefix_error(err, "Can't validate JPEG for directory %"PRId64": ",
-                       dir);
-        return false;
+        // fork-local fault tolerance: skip a directory with a corrupted JPEG
+        // header instead of failing the whole slide (d7900442)
+        g_clear_error(err);
+        g_warning("corrupted JPEG header for directory %"PRId64", bypass decoding",
+                  dir);
+        continue;
       }
       if (width != jp_w || height != jp_h) {
         if (jp_w == jp_tw && jp_h == jp_th) {
@@ -2243,16 +2272,19 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
         }
       }
 
-      // is smallest level?
-      if (width < min_width) {
-        min_width = width;
-        min_width_dir = dir;
-      } else {
+      // fork-local: dir 0 is the base level; same-size dirs (additional focal
+      // planes) become separate levels; smaller (downsample) dirs are bypassed
+      if (dir == 0) {
+        base_w = width;
+        base_h = height;
+      } else if (width > base_w || height > base_h) {
         // The slide's levels are in an unexpected order.  Reject the slide
         // out of paranoia.
         g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                     "Unexpected directory layout");
         return false;
+      } else if (width < base_w || height < base_h) {
+        continue; // bypass downsample levels
       }
 
       // init jpeg
@@ -2315,7 +2347,7 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
 
   // init properties and set hash
   if (!_openslide_tifflike_init_properties_and_hash(osr, tl, quickhash1,
-                                                    min_width_dir, 0,
+                                                    best_focal_level, 0,
                                                     err)) {
     return false;
   }
