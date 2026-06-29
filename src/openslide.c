@@ -263,9 +263,8 @@ openslide_t *openslide_open(const char *filename) {
   for (int32_t i = 1; i < osr->level_count; i++) {
     //g_debug("downsample: %g", osr->levels[i]->downsample);
 
-    if (osr->levels[i]->downsample < osr->levels[i - 1]->downsample) {
-      g_warning("Downsampled images not correctly ordered: %g < %g",
-		osr->levels[i]->downsample, osr->levels[i - 1]->downsample);
+    if (osr->levels[i]->downsample != 1.0) {
+      g_warning("Unexpected downsample level, %d => %g", i, osr->levels[i]->downsample);
       return NULL;
     }
   }
