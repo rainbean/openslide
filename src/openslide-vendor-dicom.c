@@ -55,6 +55,11 @@ enum image_format {
 struct dicom_file {
   char *filename;
 
+  // fork-local: reference count.  z-stack levels share the same dicom_file
+  // objects (one per focal plane), so files are refcounted instead of owned
+  // by a single level.
+  gint ref_count;
+
   GMutex lock;
   DcmFilehandle *filehandle;
   struct _openslide_dicom_io *dio;
@@ -89,6 +94,17 @@ struct dicom_level {
   struct dicom_file **files;
   uint16_t file_count;
   uint16_t *tile_files;
+
+  // fork-local: focal-plane (z-stack) support.
+  // focal_planes is the TotalPixelMatrixFocalPlanes of the image this level
+  // came from (1 for ordinary 2D images).  For an exposed z-stack plane,
+  // tile_frames[] holds the explicit 1-based frame number to read for each
+  // tile (read by frame number, since libdicom's position API collapses Z);
+  // plane_index/z_offset identify the plane.
+  int64_t focal_planes;
+  uint32_t *tile_frames;
+  int plane_index;
+  double z_offset;
 };
 
 struct associated {
@@ -120,6 +136,16 @@ static const char *const ASSOCIATED_FLAVORS[] = {
 static const char BitsAllocated[] = "BitsAllocated";
 static const char BitsStored[] = "BitsStored";
 static const char Columns[] = "Columns";
+// fork-local: per-frame focal-plane / position tags for z-stack support
+static const char PerFrameFunctionalGroupsSequence[] =
+  "PerFrameFunctionalGroupsSequence";
+static const char PlanePositionSlideSequence[] = "PlanePositionSlideSequence";
+static const char ColumnPositionInTotalImagePixelMatrix[] =
+  "ColumnPositionInTotalImagePixelMatrix";
+static const char RowPositionInTotalImagePixelMatrix[] =
+  "RowPositionInTotalImagePixelMatrix";
+static const char ZOffsetInSlideCoordinateSystem[] =
+  "ZOffsetInSlideCoordinateSystem";
 static const char ConcatenationUID[] = "ConcatenationUID";
 static const char DimensionOrganizationType[] = "DimensionOrganizationType";
 static const char HighBit[] = "HighBit";
@@ -157,8 +183,12 @@ static struct syntax_format supported_syntax_formats[] = {
 
 OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(g_ptr_array_unref)
 
+// fork-local: drop a reference; free when the last one goes away
 static void dicom_file_destroy(struct dicom_file *f) {
   if (!f) {
+    return;
+  }
+  if (!g_atomic_int_dec_and_test(&f->ref_count)) {
     return;
   }
   dcm_filehandle_destroy(f->filehandle);
@@ -167,6 +197,12 @@ static void dicom_file_destroy(struct dicom_file *f) {
   g_free(f);
 }
 OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(dicom_file_destroy)
+
+// fork-local: take an additional reference
+static struct dicom_file *dicom_file_ref(struct dicom_file *f) {
+  g_atomic_int_inc(&f->ref_count);
+  return f;
+}
 
 typedef struct dicom_file dicom_file;
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(dicom_file, dicom_file_destroy)
@@ -232,6 +268,20 @@ static bool get_tag_str(const DcmDataSet *dataset,
   DcmElement *element = dcm_dataset_get(NULL, dataset, tag);
   return element &&
          dcm_element_get_value_string(NULL, element, index, result);
+}
+
+// read a DS (decimal string) tag as a double.  libdicom stores DS as a string
+// VR, so dcm_element_get_value_decimal() (which only accepts FL/FD) cannot be
+// used; read the string and parse it locale-independently.
+static bool get_tag_double(const DcmDataSet *dataset,
+                           const char *keyword,
+                           double *result) {
+  const char *s;
+  if (!get_tag_str(dataset, keyword, 0, &s)) {
+    return false;
+  }
+  *result = g_ascii_strtod(s, NULL);
+  return true;
 }
 
 static bool get_tag_binary(const DcmDataSet *dataset,
@@ -303,6 +353,7 @@ static bool verify_tag_int(const DcmDataSet *dataset,
 static struct dicom_file *dicom_file_new(const char *filename,
                                          bool load_metadata, GError **err) {
   g_autoptr(dicom_file) f = g_new0(struct dicom_file, 1);
+  f->ref_count = 1;
   g_mutex_init(&f->lock);
 
   f->filehandle = _openslide_dicom_open(filename, &f->dio, err);
@@ -350,6 +401,7 @@ static void level_destroy(struct dicom_level *l) {
   }
   g_free(l->files);
   g_free(l->tile_files);
+  g_free(l->tile_frames);
   g_free(l);
 }
 OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(level_destroy)
@@ -373,16 +425,24 @@ static void rgb_to_cairo(const uint8_t *rgb, uint32_t *dest,
   }
 }
 
+// frame_number is a 1-based explicit frame number (fork-local, used for
+// z-stack levels where a specific focal plane must be read); 0 means look up
+// the frame by tile position (the ordinary 2D path).
 static bool decode_frame(struct dicom_file *file,
                          int64_t tile_col, int64_t tile_row,
+                         uint32_t frame_number,
                          uint32_t *dest, int64_t w, int64_t h,
                          GError **err) {
   g_mutex_lock(&file->lock);
   DcmError *dcm_error = NULL;
   g_autoptr(DcmFrame) frame =
-      dcm_filehandle_read_frame_position(&dcm_error,
-                                         file->filehandle,
-                                         tile_col, tile_row);
+      frame_number ?
+        dcm_filehandle_read_frame(&dcm_error,
+                                  file->filehandle,
+                                  frame_number) :
+        dcm_filehandle_read_frame_position(&dcm_error,
+                                           file->filehandle,
+                                           tile_col, tile_row);
   g_mutex_unlock(&file->lock);
 
   if (!frame) {
@@ -451,8 +511,11 @@ static bool read_tile(openslide_t *osr,
   }
 
   if (!tiledata) {
+    // fork-local: z-stack levels select a specific frame per tile
+    uint32_t frame_number =
+      l->tile_frames ? l->tile_frames[tile_col + tile_row * l->tiles_across] : 0;
     g_autofree uint32_t *buf = g_new(uint32_t, l->base.tile_w * l->base.tile_h);
-    if (!decode_frame(file, tile_col, tile_row, buf,
+    if (!decode_frame(file, tile_col, tile_row, frame_number, buf,
                       l->base.tile_w, l->base.tile_h, err)) {
       return false;
     }
@@ -587,7 +650,7 @@ static bool associated_get_argb_data(struct _openslide_associated_image *img,
                                      GError **err) {
   struct associated *a = (struct associated *) img;
   g_auto(dicom_file_io) fio G_GNUC_UNUSED = dicom_file_io_get(a->file);
-  return decode_frame(a->file, 0, 0, dest, a->base.w, a->base.h, err);
+  return decode_frame(a->file, 0, 0, 0, dest, a->base.w, a->base.h, err);
 }
 
 static bool associated_read_icc_profile(struct _openslide_associated_image *img,
@@ -720,11 +783,14 @@ static bool is_down_sample_level(GPtrArray *level_array,
 static bool find_level_by_dimensions(GPtrArray *level_array,
                                      GPtrArray *level_files_array,
                                      int64_t w, int64_t h,
+                                     int64_t focal_planes,
                                      struct dicom_level **level,
                                      GPtrArray **level_files) {
   for (guint i = 0; i < level_array->len; i++) {
     struct dicom_level *l = level_array->pdata[i];
-    if (l->base.w == w && l->base.h == h) {
+    // fork-local: a single-plane and a multi-plane (z-stack) image can share
+    // the same dimensions; keep them as distinct levels
+    if (l->base.w == w && l->base.h == h && l->focal_planes == focal_planes) {
       *level = l;
       *level_files = level_files_array->pdata[i];
       return true;
@@ -754,6 +820,15 @@ static bool add_level_file(openslide_t *osr,
     return false;
   }
 
+  // fork-local: number of focal planes (z-stack depth); defaults to 1
+  int64_t focal_planes = 1;
+  get_tag_int(f->metadata, TotalPixelMatrixFocalPlanes, &focal_planes);
+  if (focal_planes < 1) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "Invalid TotalPixelMatrixFocalPlanes: %"PRId64, focal_planes);
+    return false;
+  }
+
   // get index within concatenation, if concatenation
   int64_t file_num = 1;
   get_tag_int(f->metadata, InConcatenationNumber, &file_num);
@@ -775,7 +850,7 @@ static bool add_level_file(openslide_t *osr,
   struct dicom_level *l;
   GPtrArray *files;
   if (find_level_by_dimensions(level_array, level_files_array,
-                               level_width, level_height,
+                               level_width, level_height, focal_planes,
                                &l, &files)) {
     g_assert(files->len > 0);
 
@@ -828,6 +903,7 @@ static bool add_level_file(openslide_t *osr,
     l->base.h = level_height;
     l->base.tile_w = tile_width;
     l->base.tile_h = tile_height;
+    l->focal_planes = focal_planes;
     l->tiles_across = (l->base.w / l->base.tile_w) +
                       !!(l->base.w % l->base.tile_w);
     l->tiles_down = (l->base.h / l->base.tile_h) +
@@ -911,10 +987,11 @@ static bool maybe_add_file(openslide_t *osr,
       !verify_tag_int(f->metadata, BitsStored, 8, true, err) ||
       !verify_tag_int(f->metadata, HighBit, 7, true, err) ||
       !verify_tag_int(f->metadata, SamplesPerPixel, 3, true, err) ||
-      !verify_tag_int(f->metadata, PixelRepresentation, 0, true, err) ||
-      !verify_tag_int(f->metadata, TotalPixelMatrixFocalPlanes, 1, false, err)) {
+      !verify_tag_int(f->metadata, PixelRepresentation, 0, true, err)) {
     return false;
   }
+  // fork-local: TotalPixelMatrixFocalPlanes > 1 (z-stack) is handled by
+  // exposing each focal plane as its own level; see build_zstack_levels().
 
   // check color space
   const char *photometric;
@@ -1212,6 +1289,211 @@ static bool finalize_level(struct dicom_level *l, GPtrArray *files,
   return true;
 }
 
+// fork-local: accumulator for one focal plane while scanning per-frame metadata
+struct zplane {
+  double z;
+  uint16_t *tile_files;   // length ntiles; UINT16_MAX = missing
+  uint32_t *tile_frames;  // length ntiles; 1-based frame number, 0 = missing
+};
+
+static void zplane_free(struct zplane *zp) {
+  if (!zp) {
+    return;
+  }
+  g_free(zp->tile_files);
+  g_free(zp->tile_frames);
+  g_free(zp);
+}
+OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(zplane_free)
+
+static gint compare_zplane(const void *a, const void *b) {
+  const struct zplane *za = *((const struct zplane **) a);
+  const struct zplane *zb = *((const struct zplane **) b);
+  if (za->z < zb->z) {
+    return -1;
+  } else if (za->z > zb->z) {
+    return 1;
+  }
+  return 0;
+}
+
+// fork-local: expand a multi-focal-plane image into one OpenSlide level per
+// focal plane (all at downsample 1.0).  Each frame's plane is identified by
+// ZOffsetInSlideCoordinateSystem in its per-frame PlanePositionSlideSequence;
+// since libdicom's position API collapses Z, we build an explicit
+// (plane, tile) -> (file, frame number) map and later read frames by number.
+// `proto` supplies the level geometry; `files` are the concatenation member
+// files (already populated, indexed by InConcatenationNumber).  Newly created
+// per-plane levels are appended to out_levels.  Does not take ownership of
+// `proto` or `files`; the new levels hold their own references to the files.
+static bool build_zstack_levels(openslide_t *osr,
+                                struct dicom_level *proto,
+                                GPtrArray *files,
+                                GPtrArray *out_levels,
+                                GError **err) {
+  // all concatenation slots must be present
+  for (guint i = 0; i < files->len; i++) {
+    if (!files->pdata[i]) {
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                  "Missing SOP instance %u/%u in z-stack concatenation",
+                  i + 1, files->len);
+      return false;
+    }
+  }
+  g_assert(files->len > 0 && files->len <= UINT16_MAX);
+  uint16_t file_count = files->len;
+
+  int64_t across = proto->tiles_across;
+  int64_t down = proto->tiles_down;
+  int64_t ntiles = across * down;
+
+  g_autoptr(GPtrArray) planes =
+    g_ptr_array_new_with_free_func(OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(zplane_free));
+
+  // scan each file's per-frame functional groups, bucketing frames by Z
+  for (uint16_t fi = 0; fi < file_count; fi++) {
+    struct dicom_file *file = files->pdata[fi];
+
+    DcmError *dcm_error = NULL;
+    g_mutex_lock(&file->lock);
+    DcmDataSet *md =
+      dcm_filehandle_read_metadata(&dcm_error, file->filehandle, NULL);
+    g_mutex_unlock(&file->lock);
+    if (!md) {
+      _openslide_dicom_propagate_error(err, dcm_error);
+      return false;
+    }
+
+    DcmSequence *pffg;
+    if (!get_tag_seq(md, PerFrameFunctionalGroupsSequence, &pffg)) {
+      dcm_dataset_destroy(md);
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                  "No PerFrameFunctionalGroupsSequence in z-stack file %s",
+                  file->filename);
+      return false;
+    }
+
+    uint32_t nframes = dcm_sequence_count(pffg);
+    for (uint32_t j = 0; j < nframes; j++) {
+      DcmDataSet *item = dcm_sequence_get(NULL, pffg, j);
+      DcmDataSet *pps;
+      int64_t col1, row1;
+      double z;
+      const char *fail = NULL;
+      if (!item) {
+        fail = "item";
+      } else if (!get_tag_seq_item(item, PlanePositionSlideSequence, 0, &pps)) {
+        fail = "PlanePositionSlideSequence";
+      } else if (!get_tag_int(pps, ColumnPositionInTotalImagePixelMatrix,
+                              &col1)) {
+        fail = "ColumnPosition";
+      } else if (!get_tag_int(pps, RowPositionInTotalImagePixelMatrix,
+                              &row1)) {
+        fail = "RowPosition";
+      } else if (!get_tag_double(pps, ZOffsetInSlideCoordinateSystem, &z)) {
+        fail = "ZOffset";
+      }
+      if (fail) {
+        dcm_dataset_destroy(md);
+        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                    "Couldn't read per-frame position (%s) for frame %u in %s",
+                    fail, j + 1, file->filename);
+        return false;
+      }
+
+      // positions are 1-based pixel coordinates of the tile's top-left corner
+      int64_t tile_col = (col1 - 1) / proto->base.tile_w;
+      int64_t tile_row = (row1 - 1) / proto->base.tile_h;
+      if (tile_col < 0 || tile_col >= across ||
+          tile_row < 0 || tile_row >= down) {
+        // out of range; ignore defensively
+        continue;
+      }
+      int64_t idx = tile_col + tile_row * across;
+
+      // find or create the plane for this Z offset
+      struct zplane *zp = NULL;
+      for (guint p = 0; p < planes->len; p++) {
+        struct zplane *cand = planes->pdata[p];
+        if (cand->z == z) {
+          zp = cand;
+          break;
+        }
+      }
+      if (!zp) {
+        zp = g_new0(struct zplane, 1);
+        zp->z = z;
+        zp->tile_files = g_new(uint16_t, ntiles);
+        for (int64_t t = 0; t < ntiles; t++) {
+          zp->tile_files[t] = UINT16_MAX;
+        }
+        zp->tile_frames = g_new0(uint32_t, ntiles);
+        g_ptr_array_add(planes, zp);
+      }
+      zp->tile_files[idx] = fi;
+      zp->tile_frames[idx] = j + 1;  // 1-based local frame number
+    }
+
+    dcm_dataset_destroy(md);
+  }
+
+  if (planes->len == 0) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "No focal-plane frames found in z-stack");
+    return false;
+  }
+  if ((int64_t) planes->len != proto->focal_planes) {
+    g_warning("z-stack: found %u focal planes, expected %"PRId64,
+              planes->len, proto->focal_planes);
+  }
+
+  // order planes by ascending Z so plane indices are stable
+  g_ptr_array_sort(planes, compare_zplane);
+
+  // emit one level per focal plane
+  for (guint p = 0; p < planes->len; p++) {
+    struct zplane *zp = planes->pdata[p];
+
+    g_autoptr(dicom_level) l = g_new0(struct dicom_level, 1);
+    l->base.w = proto->base.w;
+    l->base.h = proto->base.h;
+    l->base.tile_w = proto->base.tile_w;
+    l->base.tile_h = proto->base.tile_h;
+    l->tiles_across = across;
+    l->tiles_down = down;
+    l->focal_planes = planes->len;
+    l->plane_index = p;
+    l->z_offset = zp->z;
+
+    l->file_count = file_count;
+    l->files = g_new(struct dicom_file *, file_count);
+    for (uint16_t fi = 0; fi < file_count; fi++) {
+      l->files[fi] = dicom_file_ref(files->pdata[fi]);
+    }
+    l->tile_files = g_steal_pointer(&zp->tile_files);
+    l->tile_frames = g_steal_pointer(&zp->tile_frames);
+
+    l->grid = _openslide_grid_create_simple(osr, across, down,
+                                            l->base.tile_w, l->base.tile_h,
+                                            read_tile);
+    for (int64_t tr = 0; tr < down; tr++) {
+      for (int64_t tc = 0; tc < across; tc++) {
+        if (l->tile_files[tc + tr * across] == UINT16_MAX) {
+          _openslide_grid_simple_set_missing(l->grid, tc, tr);
+        }
+      }
+    }
+
+    g_ptr_array_add(out_levels, g_steal_pointer(&l));
+  }
+
+  // done with I/O on the shared files
+  for (uint16_t fi = 0; fi < file_count; fi++) {
+    _openslide_dicom_io_suspend(((struct dicom_file *) files->pdata[fi])->dio);
+  }
+  return true;
+}
+
 static bool dicom_open(openslide_t *osr,
                        const char *filename,
                        struct _openslide_tifflike *tl G_GNUC_UNUSED,
@@ -1291,19 +1573,54 @@ static bool dicom_open(openslide_t *osr,
     return false;
   }
 
-  // finalize levels
-  for (uint32_t i = 0; i < level_array->len; i++) {
-    if (!finalize_level(level_array->pdata[i], level_files_array->pdata[i],
-                        err)) {
+  // fork-local: detect z-stack (any image with more than one focal plane)
+  bool have_zstack = false;
+  for (guint i = 0; i < level_array->len; i++) {
+    if (((struct dicom_level *) level_array->pdata[i])->focal_planes > 1) {
+      have_zstack = true;
+      break;
+    }
+  }
+
+  // the level set we hand to the core
+  g_autoptr(GPtrArray) levels = NULL;
+
+  if (!have_zstack) {
+    // ordinary 2D path (unchanged): finalize each level in place
+    for (uint32_t i = 0; i < level_array->len; i++) {
+      if (!finalize_level(level_array->pdata[i], level_files_array->pdata[i],
+                          err)) {
+        return false;
+      }
+    }
+    // sort levels by width
+    g_ptr_array_sort(level_array, compare_level_width);
+    levels = g_steal_pointer(&level_array);
+  } else {
+    // fork-local: expose each focal plane of the base z-stack as its own
+    // level.  Single-plane images at the base dimensions are redundant with
+    // the z-stack planes and are dropped (they stay owned by level_array and
+    // are freed when it goes out of scope).
+    levels = g_ptr_array_new_full(4,
+                                  OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(level_destroy));
+    for (uint32_t i = 0; i < level_array->len; i++) {
+      struct dicom_level *l = level_array->pdata[i];
+      if (l->focal_planes > 1) {
+        if (!build_zstack_levels(osr, l, level_files_array->pdata[i],
+                                 levels, err)) {
+          return false;
+        }
+      }
+    }
+    if (levels->len == 0) {
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                  "No focal planes found");
       return false;
     }
   }
 
-  // sort levels by width
-  g_ptr_array_sort(level_array, compare_level_width);
-
   // add properties
-  struct dicom_level *level0 = level_array->pdata[0];
+  struct dicom_level *level0 = levels->pdata[0];
   add_properties(osr, level0);
 
   (void) get_icc_profile(level0->files[0], &osr->icc_profile_size);
@@ -1314,9 +1631,9 @@ static bool dicom_open(openslide_t *osr,
   g_assert(osr->data == NULL);
   g_assert(osr->levels == NULL);
 
-  osr->level_count = level_array->len;
+  osr->level_count = levels->len;
   osr->levels = (struct _openslide_level **)
-    g_ptr_array_free(g_steal_pointer(&level_array), false);
+    g_ptr_array_free(g_steal_pointer(&levels), false);
   osr->ops = &dicom_ops;
   return true;
 }
