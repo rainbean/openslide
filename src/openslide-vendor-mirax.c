@@ -49,6 +49,7 @@ static const char KEY_IMAGENUMBER_X[] = "IMAGENUMBER_X";
 static const char KEY_IMAGENUMBER_Y[] = "IMAGENUMBER_Y";
 static const char KEY_OBJECTIVE_MAGNIFICATION[] = "OBJECTIVE_MAGNIFICATION";
 static const char KEY_CAMERA_IMAGE_DIVISIONS_PER_SIDE[] = "CameraImageDivisionsPerSide";
+static const char KEY_SLIDE_VERSION[] = "CURRENT_SLIDE_VERSION";
 
 static const char GROUP_HIERARCHICAL[] = "HIERARCHICAL";
 static const char KEY_HIER_COUNT[] = "HIER_COUNT";
@@ -71,7 +72,8 @@ static const char VALUE_SCAN_DATA_LAYER[] = "Scan data layer";
 static const char VALUE_SCAN_DATA_LAYER_MACRO[] = "ScanDataLayer_SlideThumbnail";
 static const char VALUE_SCAN_DATA_LAYER_LABEL[] = "ScanDataLayer_SlideBarcode";
 static const char VALUE_SCAN_DATA_LAYER_THUMBNAIL[] = "ScanDataLayer_SlidePreview";
-static const char VALUE_SLIDE_ZOOM_LEVEL[] = "Slide zoom level";
+// static const char VALUE_SLIDE_ZOOM_LEVEL[] = "Slide zoom level";
+static const char VALUE_SLIDE_ZOOM_LEVEL[] = "Microscope focus level";
 
 static const int SLIDE_POSITION_RECORD_SIZE = 9;
 
@@ -683,6 +685,7 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
 						   int images_across,
 						   int images_down,
 						   int image_divisions,
+						   double slide_version,
 						   const struct slide_zoom_level_params *slide_zoom_level_params,
 						   int32_t *slide_positions,
 						   struct _openslide_hash *quickhash1,
@@ -892,8 +895,13 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
       }
     } while (next_ptr != 0);
 
-    // advance for next zoom level
-    seek_location += 4;
+    // jump to next block region of focus level
+    if (slide_version >= 2.5) {
+      seek_location += 108;
+    } else {
+      seek_location += 240;
+    }
+
   }
 
   return true;
@@ -1025,6 +1033,7 @@ static bool process_indexfile(openslide_t *osr,
 			      double overlap_x,
 			      double overlap_y,
 			      int image_divisions,
+			      double slide_version,
 			      const struct slide_zoom_level_params *slide_zoom_level_params,
 			      struct _openslide_file *indexfile,
 			      struct level **levels,
@@ -1192,6 +1201,7 @@ static bool process_indexfile(openslide_t *osr,
 					      images_x,
 					      images_y,
 					      image_divisions,
+					      slide_version,
 					      slide_zoom_level_params,
 					      slide_positions,
 					      quickhash1,
@@ -1422,8 +1432,18 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     _openslide_parse_int64(objective_magnification_str,
                            &objective_magnification);
   }
-
   GError *tmp_err = NULL;
+
+  // fork-local: slide version selects the focus index table block stride.
+  // Older MIRAX files omit CURRENT_SLIDE_VERSION; fall back to the legacy
+  // (pre-2.5) layout instead of failing the open.
+  double slide_version =
+    g_key_file_get_double(slidedat, GROUP_GENERAL, KEY_SLIDE_VERSION, &tmp_err);
+  if (tmp_err != NULL) {
+    g_clear_error(&tmp_err);
+    slide_version = 0.0;
+  }
+
   int image_divisions =
     g_key_file_get_integer(slidedat, GROUP_GENERAL,
                            KEY_CAMERA_IMAGE_DIVISIONS_PER_SIDE, &tmp_err);
@@ -1475,12 +1495,14 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     return false;
   }
 
+#if 0
   // TODO allow slide_zoom_level_value to be at another hierarchy value
   if (slide_zoom_level_value != 0) {
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                 "Slide zoom level not HIER_0");
     return false;
   }
+#endif
 
   g_autofree char *index_filename = NULL;
   READ_KEY_OR_FAIL(index_filename, slidedat, GROUP_HIERARCHICAL,
@@ -1493,8 +1515,9 @@ static bool mirax_open(openslide_t *osr, const char *filename,
   g_auto(GStrv) slide_zoom_level_section_names =
     g_new0(char *, zoom_levels + 1);
   for (int i = 0; i < zoom_levels; i++) {
+    // always read from zero section
     g_autofree char *key =
-      g_strdup_printf(KEY_HIER_d_VAL_d_SECTION, slide_zoom_level_value, i);
+      g_strdup_printf(KEY_HIER_d_VAL_d_SECTION, 0, 0);
 
     READ_KEY_OR_FAIL(slide_zoom_level_section_names[i], slidedat,
                      GROUP_HIERARCHICAL, key, value);
@@ -1541,8 +1564,6 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 
     if (i == 0) {
       NON_NEGATIVE_OR_FAIL(hs->concat_exponent);
-    } else {
-      POSITIVE_OR_FAIL(hs->concat_exponent);
     }
     POSITIVE_OR_FAIL(hs->image_w);
     POSITIVE_OR_FAIL(hs->image_h);
@@ -1809,6 +1830,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 			 slide_zoom_level_sections[0].overlap_x,
 			 slide_zoom_level_sections[0].overlap_y,
 			 image_divisions,
+			 slide_version,
 			 slide_zoom_level_params,
 			 indexfile,
 			 (struct level **) level_array->pdata,
