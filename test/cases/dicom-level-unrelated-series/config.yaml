@@ -2,5 +2,7 @@ base: DICOM/3DHISTECH-1.zip
 slide: 000005.dcm
 success: true
 vendor: dicom
+# fork-local: upstream expects 9 levels; the fork exposes only the
+# full-resolution level
 properties:
-  openslide.level-count: "9"
+  openslide.level-count: "1"

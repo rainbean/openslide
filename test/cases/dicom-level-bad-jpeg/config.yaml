@@ -1,7 +1,12 @@
+# fork-local: upstream expects the corrupt frame in 000013.dcm (a
+# down-sample level) to fail a read at level 8.  The fork drops
+# down-sample levels, so the slide opens with only the full-resolution
+# level and reads cleanly.
 base: DICOM/3DHISTECH-1.zip
-error: "^Not a JPEG file: starts with 0xf3 0xd8$"
 slide: 000005.dcm
-success: false
+success: true
 vendor: dicom
 regions:
-  - [0, 0, 8, 100, 100]
+  - [0, 0, 0, 100, 100]
+properties:
+  openslide.level-count: "1"
