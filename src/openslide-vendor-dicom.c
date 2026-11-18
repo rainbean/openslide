@@ -778,16 +778,31 @@ static bool add_associated(openslide_t *osr,
   return true;
 }
 
-// fork-local: is this level smaller than the base (largest) level?
-static bool is_down_sample_level(GPtrArray *level_array,
-                                 int64_t w, int64_t h) {
-  if (level_array->len > 0) {
-    struct dicom_level *l = (struct dicom_level *) level_array->pdata[0];
-    if (l->base.w > w || l->base.h > h) {
-      return true;
+// fork-local: expose only full-resolution levels.  Drop every level smaller
+// than the largest one, after all files are scanned: the file the caller
+// opened (and directory order) decides which level is seen first, so a
+// smaller level can arrive before the base.
+static void drop_down_sample_levels(GPtrArray *level_array,
+                                    GPtrArray *level_files_array) {
+  struct dicom_level *largest = NULL;
+  for (guint i = 0; i < level_array->len; i++) {
+    struct dicom_level *l = level_array->pdata[i];
+    if (!largest || l->base.w * l->base.h > largest->base.w * largest->base.h) {
+      largest = l;
     }
   }
-  return false;
+  if (!largest) {
+    return;
+  }
+  int64_t max_w = largest->base.w;
+  int64_t max_h = largest->base.h;
+  for (guint i = level_array->len; i-- > 0; ) {
+    struct dicom_level *l = level_array->pdata[i];
+    if (l->base.w < max_w || l->base.h < max_h) {
+      g_ptr_array_remove_index(level_array, i);
+      g_ptr_array_remove_index(level_files_array, i);
+    }
+  }
 }
 
 static bool find_level_by_dimensions(GPtrArray *level_array,
@@ -849,13 +864,6 @@ static bool add_level_file(openslide_t *osr,
   }
   // zero-index
   file_num--;
-
-  // fork-local: expose only the largest level; bypass down-sample levels.
-  // The base level is added first, so it occupies level_array[0].
-  // TODO: handle multiple z stack case
-  if (is_down_sample_level(level_array, level_width, level_height)) {
-    return true;
-  }
 
   struct dicom_level *l;
   GPtrArray *files;
@@ -1690,6 +1698,7 @@ static bool dicom_open(openslide_t *osr,
                 "No pyramid levels found");
     return false;
   }
+  drop_down_sample_levels(level_array, level_files_array);
 
   // fork-local: detect z-stack (any image with more than one focal plane)
   bool have_zstack = false;
