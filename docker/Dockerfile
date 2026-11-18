@@ -18,5 +18,7 @@ RUN apt-get update && \
 		libzstd-dev \
 		libjpeg-turbo8-dev \
 		doxygen \
-		libsqlite3-dev
-
+		libsqlite3-dev \
+		libjpeg-turbo-progs \
+		xdelta3 \
+		python3-venv
