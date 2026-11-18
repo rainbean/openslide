@@ -276,7 +276,8 @@ static bool get_tag_str(const DcmDataSet *dataset,
 
 // read a DS (decimal string) tag as a double.  libdicom stores DS as a string
 // VR, so dcm_element_get_value_decimal() (which only accepts FL/FD) cannot be
-// used; read the string and parse it locale-independently.
+// used; read the string and parse it locale-independently.  DS may carry
+// leading and trailing spaces, which libdicom does not fully strip.
 static bool get_tag_double(const DcmDataSet *dataset,
                            const char *keyword,
                            double *result) {
@@ -284,7 +285,12 @@ static bool get_tag_double(const DcmDataSet *dataset,
   if (!get_tag_str(dataset, keyword, 0, &s)) {
     return false;
   }
-  *result = g_ascii_strtod(s, NULL);
+  g_autofree char *trimmed = g_strstrip(g_strdup(s));
+  double value = _openslide_parse_double(trimmed);
+  if (isnan(value)) {
+    return false;
+  }
+  *result = value;
   return true;
 }
 
