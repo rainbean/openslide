@@ -100,7 +100,8 @@ struct dicom_level {
   // came from (1 for ordinary 2D images).  For an exposed z-stack plane,
   // tile_frames[] holds the explicit 1-based frame number to read for each
   // tile (read by frame number, since libdicom's position API collapses Z);
-  // plane_index/z_offset identify the plane.
+  // plane_index/z_offset identify the plane; z_offset is the plane index
+  // when the planes came from the TILED_FULL frame order.
   int64_t focal_planes;
   uint32_t *tile_frames;
   int plane_index;
@@ -146,6 +147,8 @@ static const char RowPositionInTotalImagePixelMatrix[] =
   "RowPositionInTotalImagePixelMatrix";
 static const char ZOffsetInSlideCoordinateSystem[] =
   "ZOffsetInSlideCoordinateSystem";
+static const char ConcatenationFrameOffsetNumber[] =
+  "ConcatenationFrameOffsetNumber";
 static const char ConcatenationUID[] = "ConcatenationUID";
 static const char DimensionOrganizationType[] = "DimensionOrganizationType";
 static const char HighBit[] = "HighBit";
@@ -154,6 +157,7 @@ static const char ImageType[] = "ImageType";
 static const char InConcatenationNumber[] = "InConcatenationNumber";
 static const char InConcatenationTotalNumber[] = "InConcatenationTotalNumber";
 static const char MediaStorageSOPClassUID[] = "MediaStorageSOPClassUID";
+static const char NumberOfFrames[] = "NumberOfFrames";
 static const char OpticalPathSequence[] = "OpticalPathSequence";
 static const char PhotometricInterpretation[] = "PhotometricInterpretation";
 static const char PixelRepresentation[] = "PixelRepresentation";
@@ -1289,11 +1293,12 @@ static bool finalize_level(struct dicom_level *l, GPtrArray *files,
   return true;
 }
 
-// fork-local: accumulator for one focal plane while scanning per-frame metadata
+// fork-local: accumulator for one focal plane while scanning frames
 struct zplane {
   double z;
   uint16_t *tile_files;   // length ntiles; UINT16_MAX = missing
   uint32_t *tile_frames;  // length ntiles; 1-based frame number, 0 = missing
+  int64_t filled;         // tiles with a frame
 };
 
 static void zplane_free(struct zplane *zp) {
@@ -1317,11 +1322,145 @@ static gint compare_zplane(const void *a, const void *b) {
   return 0;
 }
 
+// fork-local: record that tile `idx` of the plane at `z` is frame `frame`
+// (1-based, local to file `fi`), creating the plane on first sight
+static void zplane_record(GPtrArray *planes, double z, int64_t ntiles,
+                          int64_t idx, uint16_t fi, uint32_t frame) {
+  struct zplane *zp = NULL;
+  for (guint p = 0; p < planes->len; p++) {
+    struct zplane *cand = planes->pdata[p];
+    if (cand->z == z) {
+      zp = cand;
+      break;
+    }
+  }
+  if (!zp) {
+    zp = g_new0(struct zplane, 1);
+    zp->z = z;
+    zp->tile_files = g_new(uint16_t, ntiles);
+    for (int64_t t = 0; t < ntiles; t++) {
+      zp->tile_files[t] = UINT16_MAX;
+    }
+    zp->tile_frames = g_new0(uint32_t, ntiles);
+    g_ptr_array_add(planes, zp);
+  }
+  if (!zp->tile_frames[idx]) {
+    zp->filled++;
+  }
+  zp->tile_files[idx] = fi;
+  zp->tile_frames[idx] = frame;
+}
+
+// fork-local: bucket a file's frames by the ZOffsetInSlideCoordinateSystem
+// in its PerFrameFunctionalGroupsSequence (e.g. 3DHistech)
+static bool zstack_scan_by_position(struct dicom_file *file,
+                                    DcmSequence *pffg,
+                                    struct dicom_level *proto,
+                                    uint16_t fi,
+                                    GPtrArray *planes,
+                                    GError **err) {
+  int64_t across = proto->tiles_across;
+  int64_t down = proto->tiles_down;
+  uint32_t nframes = dcm_sequence_count(pffg);
+  for (uint32_t j = 0; j < nframes; j++) {
+    DcmDataSet *item = dcm_sequence_get(NULL, pffg, j);
+    DcmDataSet *pps;
+    int64_t col1, row1;
+    double z;
+    const char *fail = NULL;
+    if (!item) {
+      fail = "item";
+    } else if (!get_tag_seq_item(item, PlanePositionSlideSequence, 0, &pps)) {
+      fail = "PlanePositionSlideSequence";
+    } else if (!get_tag_int(pps, ColumnPositionInTotalImagePixelMatrix,
+                            &col1)) {
+      fail = "ColumnPosition";
+    } else if (!get_tag_int(pps, RowPositionInTotalImagePixelMatrix,
+                            &row1)) {
+      fail = "RowPosition";
+    } else if (!get_tag_double(pps, ZOffsetInSlideCoordinateSystem, &z)) {
+      fail = "ZOffset";
+    }
+    if (fail) {
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                  "Couldn't read per-frame position (%s) for frame %u in %s",
+                  fail, j + 1, file->filename);
+      return false;
+    }
+
+    // positions are 1-based pixel coordinates of the tile's top-left corner
+    int64_t tile_col = (col1 - 1) / proto->base.tile_w;
+    int64_t tile_row = (row1 - 1) / proto->base.tile_h;
+    if (tile_col < 0 || tile_col >= across ||
+        tile_row < 0 || tile_row >= down) {
+      // out of range; ignore defensively
+      continue;
+    }
+    zplane_record(planes, z, across * down, tile_col + tile_row * across,
+                  fi, j + 1);
+  }
+  return true;
+}
+
+// fork-local: derive each frame's plane and tile from its position in the
+// TILED_FULL frame order (PS3.3 C.7.6.17.3): across a row, then down the
+// rows, then through the focal planes from glass to coverslip, then through
+// the optical paths.  A concatenation part's frames start at its
+// ConcatenationFrameOffsetNumber.  Hamamatsu writes z-stacks this way, with
+// no per-frame positions.  Planes are keyed by index, so ascending z is still
+// glass to coverslip.  `*next_offset` carries the running frame count, used
+// when a part lacks ConcatenationFrameOffsetNumber.
+static bool zstack_scan_by_order(struct dicom_file *file,
+                                 struct dicom_level *proto,
+                                 uint16_t fi,
+                                 int64_t *next_offset,
+                                 GPtrArray *planes,
+                                 GError **err) {
+  const char *s;
+  int64_t nframes = 1;
+  if (get_tag_str(file->metadata, NumberOfFrames, 0, &s) &&
+      (!_openslide_parse_int64(s, &nframes) ||
+       nframes < 1 || nframes > UINT32_MAX)) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "Invalid NumberOfFrames in %s", file->filename);
+    return false;
+  }
+  int64_t offset = *next_offset;
+  get_tag_int(file->metadata, ConcatenationFrameOffsetNumber, &offset);
+  if (offset < 0 || offset > UINT32_MAX) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "Invalid ConcatenationFrameOffsetNumber in %s", file->filename);
+    return false;
+  }
+  *next_offset = offset + nframes;
+
+  int64_t across = proto->tiles_across;
+  int64_t ntiles = across * proto->tiles_down;
+  for (int64_t j = 0; j < nframes; j++) {
+    int64_t frame = offset + j;
+    int64_t plane = frame / ntiles;
+    if (plane >= proto->focal_planes) {
+      // later optical paths; we read only the first
+      break;
+    }
+    zplane_record(planes, plane, ntiles, frame % ntiles, fi, j + 1);
+  }
+  return true;
+}
+
+// fork-local: is the frame order fixed by DimensionOrganizationType?
+static bool is_tiled_full(const DcmDataSet *metadata) {
+  const char *organization;
+  return get_tag_str(metadata, DimensionOrganizationType, 0, &organization) &&
+         g_str_equal(organization, "TILED_FULL");
+}
+
 // fork-local: expand a multi-focal-plane image into one OpenSlide level per
-// focal plane (all at downsample 1.0).  Each frame's plane is identified by
-// ZOffsetInSlideCoordinateSystem in its per-frame PlanePositionSlideSequence;
-// since libdicom's position API collapses Z, we build an explicit
-// (plane, tile) -> (file, frame number) map and later read frames by number.
+// focal plane (all at downsample 1.0).  Each frame's plane comes from its
+// per-frame ZOffsetInSlideCoordinateSystem when the file has per-frame
+// positions, else from the TILED_FULL frame order.  Since libdicom's
+// position API collapses Z, we build an explicit (plane, tile) -> (file,
+// frame number) map and later read frames by number.
 // `proto` supplies the level geometry; `files` are the concatenation member
 // files (already populated, indexed by InConcatenationNumber).  Newly created
 // per-plane levels are appended to out_levels.  Does not take ownership of
@@ -1350,7 +1489,12 @@ static bool build_zstack_levels(openslide_t *osr,
   g_autoptr(GPtrArray) planes =
     g_ptr_array_new_with_free_func(OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(zplane_free));
 
-  // scan each file's per-frame functional groups, bucketing frames by Z
+  // scan each file's frames, bucketing them by plane.  The two scans key
+  // planes differently (Z offset vs. plane index), so a z-stack must use
+  // one of them for every part.
+  bool by_position = false;
+  bool by_order = false;
+  int64_t next_offset = 0;
   for (uint16_t fi = 0; fi < file_count; fi++) {
     struct dicom_file *file = files->pdata[fi];
 
@@ -1365,76 +1509,44 @@ static bool build_zstack_levels(openslide_t *osr,
     }
 
     DcmSequence *pffg;
-    if (!get_tag_seq(md, PerFrameFunctionalGroupsSequence, &pffg)) {
-      dcm_dataset_destroy(md);
+    bool ok;
+    if (get_tag_seq(md, PerFrameFunctionalGroupsSequence, &pffg)) {
+      by_position = true;
+      ok = zstack_scan_by_position(file, pffg, proto, fi, planes, err);
+    } else if (is_tiled_full(file->metadata)) {
+      by_order = true;
+      ok = zstack_scan_by_order(file, proto, fi, &next_offset, planes, err);
+    } else {
       g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                  "No PerFrameFunctionalGroupsSequence in z-stack file %s",
-                  file->filename);
+                  "Z-stack file %s has neither per-frame positions nor "
+                  "TILED_FULL frame order", file->filename);
+      ok = false;
+    }
+    if (ok && by_position && by_order) {
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                  "Z-stack concatenation mixes per-frame positions and "
+                  "TILED_FULL frame order (%s)", file->filename);
+      ok = false;
+    }
+    dcm_dataset_destroy(md);
+    if (!ok) {
       return false;
     }
+  }
 
-    uint32_t nframes = dcm_sequence_count(pffg);
-    for (uint32_t j = 0; j < nframes; j++) {
-      DcmDataSet *item = dcm_sequence_get(NULL, pffg, j);
-      DcmDataSet *pps;
-      int64_t col1, row1;
-      double z;
-      const char *fail = NULL;
-      if (!item) {
-        fail = "item";
-      } else if (!get_tag_seq_item(item, PlanePositionSlideSequence, 0, &pps)) {
-        fail = "PlanePositionSlideSequence";
-      } else if (!get_tag_int(pps, ColumnPositionInTotalImagePixelMatrix,
-                              &col1)) {
-        fail = "ColumnPosition";
-      } else if (!get_tag_int(pps, RowPositionInTotalImagePixelMatrix,
-                              &row1)) {
-        fail = "RowPosition";
-      } else if (!get_tag_double(pps, ZOffsetInSlideCoordinateSystem, &z)) {
-        fail = "ZOffset";
-      }
-      if (fail) {
-        dcm_dataset_destroy(md);
-        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                    "Couldn't read per-frame position (%s) for frame %u in %s",
-                    fail, j + 1, file->filename);
-        return false;
-      }
-
-      // positions are 1-based pixel coordinates of the tile's top-left corner
-      int64_t tile_col = (col1 - 1) / proto->base.tile_w;
-      int64_t tile_row = (row1 - 1) / proto->base.tile_h;
-      if (tile_col < 0 || tile_col >= across ||
-          tile_row < 0 || tile_row >= down) {
-        // out of range; ignore defensively
-        continue;
-      }
-      int64_t idx = tile_col + tile_row * across;
-
-      // find or create the plane for this Z offset
-      struct zplane *zp = NULL;
-      for (guint p = 0; p < planes->len; p++) {
-        struct zplane *cand = planes->pdata[p];
-        if (cand->z == z) {
-          zp = cand;
-          break;
-        }
-      }
-      if (!zp) {
-        zp = g_new0(struct zplane, 1);
-        zp->z = z;
-        zp->tile_files = g_new(uint16_t, ntiles);
-        for (int64_t t = 0; t < ntiles; t++) {
-          zp->tile_files[t] = UINT16_MAX;
-        }
-        zp->tile_frames = g_new0(uint32_t, ntiles);
-        g_ptr_array_add(planes, zp);
-      }
-      zp->tile_files[idx] = fi;
-      zp->tile_frames[idx] = j + 1;  // 1-based local frame number
+  // TILED_FULL has every frame, so a short count means a part is missing,
+  // e.g. the last one of a concatenation without InConcatenationTotalNumber
+  if (by_order) {
+    int64_t found = 0;
+    for (guint p = 0; p < planes->len; p++) {
+      found += ((struct zplane *) planes->pdata[p])->filled;
     }
-
-    dcm_dataset_destroy(md);
+    if (found != ntiles * proto->focal_planes) {
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                  "Expected %"PRId64" frames in TILED_FULL z-stack, found "
+                  "%"PRId64, ntiles * proto->focal_planes, found);
+      return false;
+    }
   }
 
   if (planes->len == 0) {
