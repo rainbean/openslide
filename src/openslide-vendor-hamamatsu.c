@@ -1518,17 +1518,13 @@ static bool hamamatsu_vms_part2(openslide_t *osr,
     }
   }
 
-  // create levels: base image + map
-  // base
+  // create levels: base image only.  fork-local: upstream also adds the
+  // map image as a down-sample level; the fork exposes only full-resolution
+  // levels.  The map stays in setup->jpegs and in the quickhash.
   g_ptr_array_add(setup->levels,
                   create_jpeg_level(osr,
                                     (struct jpeg **) setup->jpegs->pdata,
                                     num_jpeg_cols, num_jpeg_rows));
-  // map
-  g_ptr_array_add(setup->levels,
-                  create_jpeg_level(osr,
-                                    (struct jpeg **) &setup->jpegs->pdata[num_jpegs - 1],
-                                    1, 1));
 
   /*
   for (int32_t i = 0; i < level_count; i++) {
