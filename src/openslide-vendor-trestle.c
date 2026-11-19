@@ -378,6 +378,17 @@ static bool trestle_open(openslide_t *osr, const char *filename,
     return false;
   }
 
+  // fork-local: expose only full-resolution levels; drop down-sample
+  // levels.  Done after hashing so the quickhash still covers the smallest
+  // level.
+  struct level *base_level = level_array->pdata[0];
+  for (guint i = level_array->len - 1; i > 0; i--) {
+    struct level *l = level_array->pdata[i];
+    if (l->base.w < base_level->base.w || l->base.h < base_level->base.h) {
+      g_ptr_array_remove_index(level_array, i);
+    }
+  }
+
   // create ops data
   struct trestle_ops_data *data = g_new0(struct trestle_ops_data, 1);
   data->tc = g_steal_pointer(&tc);
