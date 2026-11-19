@@ -411,6 +411,7 @@ static bool aperio_open(openslide_t *osr,
 
   g_autoptr(GPtrArray) level_array =
     g_ptr_array_new_with_free_func(OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(destroy_level));
+  tdir_t hash_dir = 0;
   do {
     // check depth
     uint32_t depth;
@@ -440,6 +441,11 @@ static bool aperio_open(openslide_t *osr,
     // for aperio, the tiled directories are the ones we want
     if (TIFFIsTiled(ct.tiff)) {
       //g_debug("tiled directory: %d", dir);
+      // fork-local: tiled directories shrink in file order, so the last
+      // one is the smallest level.  Hash it, as upstream does, even though
+      // down-sample levels are bypassed below.
+      hash_dir = dir;
+
       struct level *l = g_new0(struct level, 1);
       struct _openslide_tiff_level *tiffl = &l->tiffl;
       if (!_openslide_tiff_level_init(ct.tiff,
@@ -548,9 +554,8 @@ static bool aperio_open(openslide_t *osr,
   }
 
   // set hash and properties
-  struct level *top_level = level_array->pdata[level_array->len - 1];
   if (!_openslide_tifflike_init_properties_and_hash(osr, tl, quickhash1,
-                                                    top_level->tiffl.dir,
+                                                    hash_dir,
                                                     0,
                                                     err)) {
     return false;
