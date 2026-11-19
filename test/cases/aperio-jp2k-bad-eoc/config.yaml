@@ -1,10 +1,12 @@
-# successful decode with OpenJPEG warning
+# fork-local: upstream corrupts a down-sample level and expects it to
+# fail.  The fork drops down-sample levels, so the slide opens with
+# only the full-resolution level and reads cleanly.
 base: Aperio/JP2K-33003-1.svs
-error: "^\\[log\\] OpenJPEG warning: Stream does not end with EOC$"
 slide: JP2K-33003-1.svs
-# log messages are considered failures
-success: false
+success: true
 vendor: aperio
 debug: [decoding]
 regions:
-  - [0, 0, 2, 100, 100]
+  - [0, 0, 0, 100, 100]
+properties:
+  openslide.level-count: "1"

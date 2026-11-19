@@ -1,5 +1,9 @@
+# fork-local: upstream corrupts a down-sample level and expects it to
+# fail.  The fork drops down-sample levels, so the slide opens with
+# only the full-resolution level and reads cleanly.
 base: Ventana/OS-2.bif
-error: "^Unsupported TIFF compression: 240$"
 slide: OS-2.bif
-success: false
+success: true
 vendor: ventana
+properties:
+  openslide.level-count: "1"

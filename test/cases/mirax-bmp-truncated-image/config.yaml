@@ -1,7 +1,11 @@
+# fork-local: upstream corrupts a down-sample level and expects it to
+# fail.  The fork drops down-sample levels, so the slide opens with
+# only the full-resolution level and reads cleanly.
 base: Mirax/Mirax2.2-4-BMP.zip
-error: "^BMP at offset 1032768: Reading BMP pixel data: Short read of file .*Data0013.dat: 922 < 1016$"
 slide: Mirax2.2-4-BMP.mrxs
-success: false
+success: true
 vendor: mirax
 regions:
-- [50000, 100000, 8, 200, 200]
+- [50000, 100000, 0, 200, 200]
+properties:
+  openslide.level-count: "1"

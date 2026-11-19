@@ -1,7 +1,11 @@
+# fork-local: upstream corrupts a down-sample level and expects it to
+# fail.  The fork drops down-sample levels, so the slide opens with
+# only the full-resolution level and reads cleanly.
 base: Mirax/Mirax2.2-4-PNG.zip
-error: "^PNG error: Read failed$"
 slide: Mirax2.2-4-PNG.mrxs
-success: false
+success: true
 vendor: mirax
 regions:
-- [0, 0, 8, 1000, 1000]
+- [0, 0, 0, 1000, 1000]
+properties:
+  openslide.level-count: "1"

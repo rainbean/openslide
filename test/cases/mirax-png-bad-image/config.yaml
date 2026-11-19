@@ -1,9 +1,11 @@
+# fork-local: upstream corrupts a down-sample level and expects it to
+# fail.  The fork drops down-sample levels, so the slide opens with
+# only the full-resolution level and reads cleanly.
 base: Mirax/Mirax2.2-4-PNG.zip
-# libpng 1.5 says "unknown critical chunk", 1.6 says "unhandled",
-# 1.6.13 says "CRC error"
-error: "^PNG error: IHDZ: (un.+ critical chunk|CRC error)$"
 slide: Mirax2.2-4-PNG.mrxs
-success: false
+success: true
 vendor: mirax
 regions:
-- [50000, 100000, 9, 100, 100]
+- [50000, 100000, 0, 100, 100]
+properties:
+  openslide.level-count: "1"
