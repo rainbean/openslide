@@ -809,6 +809,16 @@ static bool leica_open(openslide_t *osr, const char *filename,
   // set region bounds properties
   set_region_bounds_props(osr, level0);
 
+  // fork-local: expose only full-resolution levels; drop down-sample
+  // levels.  Levels are sorted largest first and the quickhash directory
+  // was chosen above, so the hash is unchanged.
+  for (guint i = level_array->len - 1; i > 0; i--) {
+    struct level *l = level_array->pdata[i];
+    if (l->base.w < level0->base.w || l->base.h < level0->base.h) {
+      g_ptr_array_remove_index(level_array, i);
+    }
+  }
+
   // allocate private data
   struct leica_ops_data *data = g_new0(struct leica_ops_data, 1);
   data->tc = g_steal_pointer(&tc);
