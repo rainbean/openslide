@@ -1,5 +1,9 @@
 /libdicom-*
+/uthash-*
 /xdelta3-*
+
+# downloaded from WrapDB by meson when the system lacks uthash
+/uthash.wrap
 
 /.wraplock
 /packagecache
