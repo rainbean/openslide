@@ -29,19 +29,28 @@ diverges from upstream (`upstream` remote) on purpose. Run
 The host lacks the build deps. Build and test inside the `openslide` image
 (`docker build -t openslide docker/`), running as root: with `-u $(id -u)`,
 meson's wrap handling fails with a PermissionError. Build into the container's
-`/build` so the repo stays clean:
+`/build` so the repo stays clean, and keep the slide cache and pre-commit hook
+environments in the repo's ignored `build/` so they survive `--rm`:
 
 ```bash
-docker run --rm -v "$PWD":/mnt -w /mnt openslide bash -c '
+docker run --rm -v "$PWD":/mnt -w /mnt \
+  -e OPENSLIDE_TEST_CACHE=/mnt/build/_slidedata \
+  -e PRE_COMMIT_HOME=/mnt/build/pre-commit openslide bash -c '
   meson setup /build -Dtest=enabled && ninja -C /build &&
   cd /build/test && ./driver unpack nonfrozen && ./driver run "dicom*"'
 ```
 
+The Dockerfile points apt at `tw.archive.ubuntu.com`, because
+`archive.ubuntu.com` is unusably slow from the dev host. Elsewhere, pass
+`--build-arg UBUNTU_MIRROR=<url>`. The image also carries `pre-commit`; run
+`pre-commit run -a` inside the container, not on the host.
+
 The suite is the generated Python `driver` in `<builddir>/test/`. There are no
 `meson test` targets. Run `./driver` with no arguments for its subcommands
 (`run`, `sanitize`, `valgrind`, `exports`, …). Narrow `run` and `unpack` with a
-pattern: the full suite downloads 40+ GB of slides and has never run on the
-fork. `./driver run 'dicom*'` passes 41/41. To check one file, run
+pattern. The first full `unpack` downloads about 30 GB of slides (2.5 hours
+here); once cached, the full `run` takes about a minute. Every failure left in
+the full suite is a MIRAX case. To check one file, run
 `/build/tools/slidetool prop list <slide>` with the slide mounted read-only.
 
 ## Coding rules
