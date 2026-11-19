@@ -205,6 +205,8 @@ static bool generic_tiff_open(openslide_t *osr,
   // accumulate tiled levels
   g_autoptr(GPtrArray) level_array =
     g_ptr_array_new_with_free_func(OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(destroy_level));
+  int64_t hash_w = INT64_MAX;
+  tdir_t hash_dir = 0;
   do {
     tdir_t dir = TIFFCurrentDirectory(ct.tiff);
 
@@ -246,6 +248,12 @@ static bool generic_tiff_open(openslide_t *osr,
                                     err)) {
       return false;
     }
+    // fork-local: hash the narrowest level, as upstream does, even though
+    // down-sample levels are bypassed below
+    if (l->base.w < hash_w) {
+      hash_w = l->base.w;
+      hash_dir = dir;
+    }
     // fork-local: expose only full-resolution levels; bypass down-sample
     // (reduced-resolution) directories
     if (level_array->len > 0) {
@@ -275,9 +283,8 @@ static bool generic_tiff_open(openslide_t *osr,
 
   // set hash and properties
   struct level *bottom_level = level_array->pdata[0];
-  struct level *top_level = level_array->pdata[level_array->len - 1];
   if (!_openslide_tifflike_init_properties_and_hash(osr, tl, quickhash1,
-                                                    top_level->tiffl.dir,
+                                                    hash_dir,
                                                     0,
                                                     err)) {
     return false;
