@@ -1,11 +1,11 @@
+# fork-local: the shared JPEG decoder bypasses the corrupt jpeg.bad item
+# and reports it on stderr, which the harness treats as an error.  The
+# anchored pattern still fails the case if any other item errors.
 base: Aperio/CMU-1.svs
+error: "^bypass JPEG decoding error: Bogus Huffman table definition$"
 slide: ""
-success: true
+success: false
 vendor: synthetic
 primary: true
-properties:
-  # quickhash changes whenever items are added, and is different for each
-  # combination of optional features.  Omit.
-  openslide.vendor: synthetic
 debug:
 - synthetic

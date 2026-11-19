@@ -58,6 +58,9 @@ struct synthetic_item {
   const char *name;
   const char *description;
   bool is_valid;
+  // fork-local: invalid, but the shared JPEG decoder bypasses the error
+  // and paints a placeholder tile, so decoding succeeds
+  bool decode_bypassed;
   bool is_image;
   bool (*decode)(const void *data, uint32_t len, uint32_t *dest, GError **err);
   uint32_t uncompressed_size;
@@ -276,7 +279,7 @@ static bool decode_item(const struct synthetic_item *item,
   if (item->is_valid && !ok) {
     g_prefix_error(err, "Decoding %s: ", item->name);
     return false;
-  } else if (!item->is_valid && ok) {
+  } else if (!item->is_valid && ok && !item->decode_bypassed) {
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                 "Decoding %s: invalid item decoded successfully", item->name);
     return false;
@@ -637,6 +640,7 @@ static const struct synthetic_item **synthetic_items = (const struct synthetic_i
     .name = "jpeg.bad",
     .description = "Corrupt JPEG",
     .is_valid = false,
+    .decode_bypassed = true,
     .is_image = true,
     .decode = decode_jpeg,
     .uncompressed_size = 518,
