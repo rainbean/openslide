@@ -1,5 +1,8 @@
+# fork-local: the fork paints a placeholder tile for a corrupt JPEG
+# tile and reports the decode error with a "bypass JPEG decoding
+# error:" prefix instead of failing the read.
 base: Hamamatsu-vms/CMU-1.zip
-error: "^Corrupt JPEG data: premature end of data segment$"
+error: "^bypass JPEG decoding error: Corrupt JPEG data: premature end of data segment$"
 slide: CMU-1-40x - 2010-01-12 13.24.05.vms
 success: false
 vendor: hamamatsu
