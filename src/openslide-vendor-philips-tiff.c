@@ -687,6 +687,17 @@ static bool philips_tiff_open(openslide_t *osr,
   maybe_add_xml_associated_image(osr, tc, doc,
                                  "macro", MACRO_DATA_XPATH, NULL);
 
+  // fork-local: expose only full-resolution levels; drop down-sample
+  // levels.  Done after hashing so the quickhash still covers the smallest
+  // level.
+  struct level *base_level = level_array->pdata[0];
+  for (guint i = level_array->len - 1; i > 0; i--) {
+    struct level *l = level_array->pdata[i];
+    if (l->base.w < base_level->base.w || l->base.h < base_level->base.h) {
+      g_ptr_array_remove_index(level_array, i);
+    }
+  }
+
   // allocate private data
   struct philips_tiff_ops_data *data = g_new0(struct philips_tiff_ops_data, 1);
   data->tc = g_steal_pointer(&tc);
