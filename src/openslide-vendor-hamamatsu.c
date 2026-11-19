@@ -2180,6 +2180,8 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
   int64_t base_w = 0;
   int64_t base_h = 0;
   int64_t best_focal_level = -1;
+  int64_t min_width = INT64_MAX;
+  int64_t min_width_dir = 0;
   for (int64_t dir = 0; dir < directories; dir++) {
     // read tags
     int64_t width, height, start_in_file, num_bytes;
@@ -2268,6 +2270,13 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
         }
       }
 
+      // fork-local: hash the smallest focal-plane-0 level, as upstream does,
+      // even though down-sample levels are bypassed below
+      if (focal_plane == 0 && width < min_width) {
+        min_width = width;
+        min_width_dir = dir;
+      }
+
       // fork-local: dir 0 is the base level; same-size dirs (additional focal
       // planes) become separate levels; smaller (downsample) dirs are bypassed
       if (dir == 0) {
@@ -2343,7 +2352,7 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
 
   // init properties and set hash
   if (!_openslide_tifflike_init_properties_and_hash(osr, tl, quickhash1,
-                                                    best_focal_level, 0,
+                                                    min_width_dir, 0,
                                                     err)) {
     return false;
   }
