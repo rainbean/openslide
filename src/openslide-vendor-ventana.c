@@ -777,6 +777,7 @@ static bool ventana_open(openslide_t *osr, const char *filename,
   int64_t next_level = 0;
   double prev_magnification = INFINITY;
   double level0_magnification = 0;
+  tdir_t hash_dir = 0;
   do {
     tdir_t dir = TIFFCurrentDirectory(ct.tiff);
 
@@ -815,6 +816,11 @@ static bool ventana_open(openslide_t *osr, const char *filename,
         level0_magnification = magnification;
       }
       double downsample = level0_magnification / magnification;
+
+      // fork-local: levels shrink in file order, so the last one is the
+      // smallest.  Hash it, as upstream does, even though down-sample
+      // levels are bypassed below.
+      hash_dir = dir;
 
       if (downsample != 1.0) {
         // bypass downsample levels
@@ -950,9 +956,8 @@ static bool ventana_open(openslide_t *osr, const char *filename,
   }
 
   // set hash and TIFF properties
-  struct level *top_level = level_array->pdata[level_array->len - 1];
   if (!_openslide_tifflike_init_properties_and_hash(osr, tl, quickhash1,
-                                                    top_level->tiffl.dir,
+                                                    hash_dir,
                                                     level0->tiffl.dir,
                                                     err)) {
     return false;
