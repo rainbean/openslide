@@ -1,11 +1,11 @@
+# fork-local: upstream reads the non-tiled level 6 whose JPEG dimensions
+# disagree with the TIFF ones.  The fork drops down-sample levels, so only
+# the full-resolution level remains.
 base: Hamamatsu/CMU-1.ndpi
 slide: CMU-1.ndpi
 success: true
 vendor: hamamatsu
 properties:
-  openslide.level[6].height: '596'
-  openslide.level[6].tile-height: '596'
-  openslide.level[6].tile-width: '800'
-  openslide.level[6].width: '800'
+  openslide.level-count: '1'
 regions:
-  - [0, 0, 6, 100, 100]
+  - [0, 0, 0, 100, 100]

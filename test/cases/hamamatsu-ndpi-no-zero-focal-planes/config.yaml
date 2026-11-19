@@ -1,5 +1,9 @@
+# fork-local: upstream ignores focal planes other than 0 and fails to find
+# any level.  The fork exposes every focal plane as a level, so the slide
+# opens without plane 0.
 base: Hamamatsu/CMU-1.ndpi
-error: "^Couldn't find any pyramid levels$"
 slide: CMU-1.ndpi
-success: false
+success: true
 vendor: hamamatsu
+properties:
+  openslide.level-count: '1'

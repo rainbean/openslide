@@ -1,5 +1,8 @@
+# fork-local: upstream fails the open on the corrupt JPEG header in
+# directory 1.  The fork skips that directory with a warning, which the
+# test harness reports as the error.
 base: Hamamatsu/CMU-1.ndpi
-error: "^Can't validate JPEG for directory 1: Bogus marker length$"
+error: "^\\[log\\] corrupted JPEG header for directory 1, bypass decoding$"
 slide: CMU-1.ndpi
 success: false
 vendor: hamamatsu

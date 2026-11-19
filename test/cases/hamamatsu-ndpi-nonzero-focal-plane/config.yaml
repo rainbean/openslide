@@ -1,6 +1,8 @@
+# fork-local: upstream expects 7 levels; the fork exposes only the
+# full-resolution level
 base: Hamamatsu/CMU-1.ndpi
 slide: CMU-1.ndpi
 success: true
 vendor: hamamatsu
 properties:
-  openslide.level-count: '7'
+  openslide.level-count: '1'
