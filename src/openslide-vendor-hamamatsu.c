@@ -2217,14 +2217,6 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
         return false;
       }
 
-      // keep best focal level info
-      if (focal_plane == 0 && best_focal_level == -1) {
-        best_focal_level = setup->levels->len; // zero based
-        g_hash_table_insert(osr->properties,
-                        g_strdup("hamamatsu.BestFocusLayer"),
-                        g_strdup_printf("%ld", best_focal_level));
-      }
-
       // will the JPEG image dimensions be valid?
       bool dimensions_valid = (width <= JPEG_MAX_DIMENSION &&
                                height <= JPEG_MAX_DIMENSION);
@@ -2328,6 +2320,16 @@ static bool hamamatsu_ndpi_open(openslide_t *osr, const char *filename,
           g_clear_error(&tmp_err);
           restart_marker_scan = true;
         }
+      }
+
+      // fork-local: report the level index of focal plane 0.  Set it only
+      // once the directory becomes a level, so a skipped (corrupt or
+      // down-sample) directory cannot leave it pointing past the levels.
+      if (focal_plane == 0 && best_focal_level == -1) {
+        best_focal_level = setup->levels->len;
+        g_hash_table_insert(osr->properties,
+                            g_strdup("hamamatsu.BestFocusLayer"),
+                            g_strdup_printf("%"PRId64, best_focal_level));
       }
 
       // create level

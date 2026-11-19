@@ -5,4 +5,6 @@ slide: CMU-1.ndpi
 success: true
 vendor: hamamatsu
 properties:
+  # no full-resolution level is focal plane 0
+  hamamatsu.BestFocusLayer: ~
   openslide.level-count: '1'
