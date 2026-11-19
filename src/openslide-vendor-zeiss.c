@@ -1395,6 +1395,9 @@ static bool zeiss_open(openslide_t *osr, const char *filename,
   if (!read_scenes_set_prop(osr, czi, &max_downsample, err)) {
     return false;
   }
+  // fork-local: expose only full-resolution levels; skip down-sample
+  // subblocks
+  max_downsample = 1;
 
   uint64_t default_cache_size;
   g_autoptr(GPtrArray) levels =
