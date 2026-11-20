@@ -92,6 +92,11 @@ static const char KEY_IMAGE_FILL_COLOR_BGR[] = "IMAGE_FILL_COLOR_BGR";
 static const char KEY_DIGITIZER_WIDTH[] = "DIGITIZER_WIDTH";
 static const char KEY_DIGITIZER_HEIGHT[] = "DIGITIZER_HEIGHT";
 static const char KEY_IMAGE_CONCAT_FACTOR[] = "IMAGE_CONCAT_FACTOR";
+static const char KEY_OFFSET_IN_MICROMETERS[] = "OFFSET_IN_MICROMETERS";
+static const char KEY_HIER_d_VAL_d[] = "HIER_%d_VAL_%d";
+
+static const char PROPERTY_LEVEL_NAME[] = "mirax.level[%d].name";
+static const char PROPERTY_LEVEL_FOCUS_OFFSET[] = "mirax.level[%d].focus-offset-um";
 
 #define READ_KEY_OR_FAIL(TARGET, KEYFILE, GROUP, KEY, TYPE)		\
   do {									\
@@ -1512,6 +1517,44 @@ static bool read_hier_layout(GKeyFile *slidedat, int hier_count,
   return true;
 }
 
+// fork-local: name each level's focal plane and give its z offset.  The
+// values are optional in the slide, so a missing one only skips a property.
+static void add_focus_properties(openslide_t *osr, GKeyFile *slidedat,
+                                 const struct hier_layout *hl) {
+  if (hl->focus == -1) {
+    return;
+  }
+  for (int i = 0; i < hl->focus_count; i++) {
+    g_autofree char *name_key = g_strdup_printf(KEY_HIER_d_VAL_d, hl->focus, i);
+    g_autofree char *name =
+      g_key_file_get_value(slidedat, GROUP_HIERARCHICAL, name_key, NULL);
+    if (name) {
+      g_hash_table_insert(osr->properties,
+                          g_strdup_printf(PROPERTY_LEVEL_NAME, i),
+                          g_steal_pointer(&name));
+    }
+
+    g_autofree char *section_key =
+      g_strdup_printf(KEY_HIER_d_VAL_d_SECTION, hl->focus, i);
+    g_autofree char *section =
+      g_key_file_get_value(slidedat, GROUP_HIERARCHICAL, section_key, NULL);
+    if (!section) {
+      continue;
+    }
+    g_autofree char *offset_str =
+      g_key_file_get_value(slidedat, section, KEY_OFFSET_IN_MICROMETERS, NULL);
+    if (!offset_str) {
+      continue;
+    }
+    double offset = _openslide_parse_double(offset_str);
+    if (!isnan(offset)) {
+      g_hash_table_insert(osr->properties,
+                          g_strdup_printf(PROPERTY_LEVEL_FOCUS_OFFSET, i),
+                          _openslide_format_double(offset));
+    }
+  }
+}
+
 static bool mirax_open(openslide_t *osr, const char *filename,
                        struct _openslide_tifflike *tl G_GNUC_UNUSED,
                        struct _openslide_hash *quickhash1, GError **err) {
@@ -1979,6 +2022,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
       break;
     }
   }
+
+  add_focus_properties(osr, slidedat, &hl);
 
   // populate levels
   g_assert(osr->levels == NULL);
