@@ -703,7 +703,6 @@ static bool get_tile_position(int32_t *slide_positions,
 static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
 						   int64_t seek_location,
 						   int datafile_count,
-						   char **datafile_paths,
 						   int plane_count,
 						   struct level **levels,
 						   int images_across,
@@ -712,7 +711,6 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
 						   const struct hier_layout *hl,
 						   const struct slide_zoom_level_params *lp,
 						   int32_t *slide_positions,
-						   struct _openslide_hash *quickhash1,
 						   GError **err) {
   int32_t image_number = 0;
 
@@ -844,14 +842,7 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
           return false;
 	}
 
-	// hash in the last plane's images
-	if (plane == plane_count - 1) {
-	  if (!_openslide_hash_file_part(quickhash1, datafile_paths[fileno],
-	                                 offset, length, err)) {
-            g_prefix_error(err, "Can't hash images: ");
-            return false;
-	  }
-	}
+
 
 	// populate the image structure
 	g_autoptr(image) image = g_new0(struct image, 1);
@@ -918,6 +909,76 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
     } while (next_ptr != 0);
   }
 
+  return true;
+}
+
+// fork-local: hash the images of one hierarchical record in page order,
+// without building tiles
+static bool hash_hier_record_images(struct _openslide_file *f,
+                                    int64_t record_ptr,
+                                    int datafile_count,
+                                    char **datafile_paths,
+                                    struct _openslide_hash *quickhash1,
+                                    GError **err) {
+  if (!_openslide_fseek(f, record_ptr, SEEK_SET, err)) {
+    g_prefix_error(err, "Cannot seek to hash record pointer: ");
+    return false;
+  }
+  int32_t ptr = read_le_int32_from_file(f);
+  if (ptr == -1) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "Can't read hash record pointer");
+    return false;
+  }
+  if (!_openslide_fseek(f, ptr, SEEK_SET, err)) {
+    g_prefix_error(err, "Cannot seek to start of hash record pages: ");
+    return false;
+  }
+  if (read_le_int32_from_file(f) != 0) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "Expected 0 value at beginning of data page");
+    return false;
+  }
+  int32_t page = read_le_int32_from_file(f);
+  if (page == -1) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "Can't read initial data page pointer");
+    return false;
+  }
+
+  while (page != 0) {
+    if (!_openslide_fseek(f, page, SEEK_SET, err)) {
+      g_prefix_error(err, "Can't seek to data page: ");
+      return false;
+    }
+    int32_t page_len = read_le_int32_from_file(f);
+    page = read_le_int32_from_file(f);
+    if (page_len == -1 || page == -1) {
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                  "Can't read data page header");
+      return false;
+    }
+    for (int i = 0; i < page_len; i++) {
+      int32_t entry[4];  // image index, offset, length, fileno
+      for (int j = 0; j < 4; j++) {
+        entry[j] = read_le_int32_from_file(f);
+      }
+      const int32_t offset = entry[1];
+      const int32_t length = entry[2];
+      const int32_t fileno = entry[3];
+      if (offset < 0 || length < 0 || fileno < 0 ||
+          fileno >= datafile_count) {
+        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                    "Invalid image entry in hash record");
+        return false;
+      }
+      if (!_openslide_hash_file_part(quickhash1, datafile_paths[fileno],
+                                     offset, length, err)) {
+        g_prefix_error(err, "Can't hash images: ");
+        return false;
+      }
+    }
+  }
   return true;
 }
 
@@ -1209,7 +1270,6 @@ static bool process_indexfile(openslide_t *osr,
   if (!process_hier_data_pages_from_indexfile(indexfile,
 					      ptr,
 					      datafile_count,
-					      datafile_paths,
 					      plane_count,
 					      levels,
 					      images_x,
@@ -1218,8 +1278,16 @@ static bool process_indexfile(openslide_t *osr,
 					      hl,
 					      lp,
 					      slide_positions,
-					      quickhash1,
 					      err)) {
+    return false;
+  }
+
+  // fork-local: hash the smallest zoom level of plane 0, as upstream does,
+  // although no level exposes it
+  const int64_t hash_record = hier_record(hl, hl->zoom_count - 1, 0);
+  if (!hash_hier_record_images(indexfile, ptr + 4 * hash_record,
+                               datafile_count, datafile_paths,
+                               quickhash1, err)) {
     return false;
   }
 
