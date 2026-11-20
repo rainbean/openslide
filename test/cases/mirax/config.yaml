@@ -11,3 +11,9 @@ properties:
   openslide.vendor: mirax
   # fork-local: no focus hierarchy, so no focal-plane properties
   mirax.level[0].name: ~
+  mirax.GENERAL.SLIDE_ID: 176E0EA4F1F24519A9CFCE64A3E9E5BD
+  # fork-local: raw Slidedat sections other than GENERAL are not
+  # exported (docs/adr/0002)
+  mirax.HIERARCHICAL.HIER_COUNT: ~
+  mirax.DATAFILE.FILE_COUNT: ~
+  mirax.LAYER_0_LEVEL_0_SECTION.IMAGE_FORMAT: ~

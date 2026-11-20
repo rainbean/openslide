@@ -11,4 +11,7 @@ properties:
   mirax.GENERAL.IMAGENUMBER_X: '352'
   mirax.GENERAL.IMAGENUMBER_Y: '976'
   mirax.GENERAL.CURRENT_SLIDE_VERSION: '1.9'
-  mirax.NONHIERLAYER_0_LEVEL_4_SECTION.PREVIEW_IMAGE_WIDTH: '854'
+  # fork-local: only GENERAL is exported (docs/adr/0002), so check a
+  # later section through a value the driver derives from it
+  mirax.NONHIERLAYER_0_LEVEL_4_SECTION.PREVIEW_IMAGE_WIDTH: ~
+  openslide.mpp-x: '0.23250000000000001'

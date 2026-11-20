@@ -1299,25 +1299,23 @@ static bool process_indexfile(openslide_t *osr,
   return true;
 }
 
+// fork-local: export only the GENERAL group.  The other groups describe the
+// file layout (hierarchies, data files, per-level sections) and run to
+// hundreds of keys; libvips copies every property into each tile it saves,
+// which made dzsave of a MIRAX slide several times slower (docs/adr/0002).
 static void add_properties(openslide_t *osr, GKeyFile *kf) {
-  g_auto(GStrv) groups = g_key_file_get_groups(kf, NULL);
-  if (groups == NULL) {
+  g_auto(GStrv) keys = g_key_file_get_keys(kf, GROUP_GENERAL, NULL, NULL);
+  if (keys == NULL) {
     return;
   }
 
-  for (char **group = groups; *group != NULL; group++) {
-    g_auto(GStrv) keys = g_key_file_get_keys(kf, *group, NULL, NULL);
-    if (keys == NULL) {
-      break;
-    }
-
-    for (char **key = keys; *key != NULL; key++) {
-      g_autofree char *value = g_key_file_get_value(kf, *group, *key, NULL);
-      if (value) {
-	g_hash_table_insert(osr->properties,
-			    g_strdup_printf("mirax.%s.%s", *group, *key),
-			    g_strdup(value));
-      }
+  for (char **key = keys; *key != NULL; key++) {
+    g_autofree char *value =
+      g_key_file_get_value(kf, GROUP_GENERAL, *key, NULL);
+    if (value) {
+      g_hash_table_insert(osr->properties,
+                          g_strdup_printf("mirax.%s.%s", GROUP_GENERAL, *key),
+                          g_strdup(value));
     }
   }
 }
