@@ -1,5 +1,8 @@
+# fork-local: the fork accepts the zoom hierarchy at any position (see
+# docs/adr/0001-mirax-index-layout.md), so this fixture, which renames
+# HIER_1 to the zoom hierarchy, fails later on its missing zoom section.
 base: Mirax/CMU-1.zip
-error: ^Slide zoom level not HIER_0$
+error: ^Key file does not have key “IMAGE_CONCAT_FACTOR” in group “LAYER_1_LEVEL_0_SECTION”$
 slide: CMU-1.mrxs
 success: false
 vendor: mirax

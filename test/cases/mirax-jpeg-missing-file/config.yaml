@@ -1,7 +1,12 @@
+# fork-local: upstream corrupts a down-sample level and expects it to
+# fail.  The fork reads only zoom level 0 (and the smallest level for
+# the quickhash), so the slide opens with only the full-resolution
+# level and reads cleanly.
 base: Mirax/CMU-1.zip
-error: "^Couldn't open .*Data0013.dat: No such file or directory$"
 slide: CMU-1.mrxs
-success: false
+success: true
 vendor: mirax
 regions:
-  - [9919, 89420, 8, 200, 200]
+- [9919, 103938, 0, 100, 100]
+properties:
+  openslide.level-count: "1"
