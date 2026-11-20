@@ -49,7 +49,6 @@ static const char KEY_IMAGENUMBER_X[] = "IMAGENUMBER_X";
 static const char KEY_IMAGENUMBER_Y[] = "IMAGENUMBER_Y";
 static const char KEY_OBJECTIVE_MAGNIFICATION[] = "OBJECTIVE_MAGNIFICATION";
 static const char KEY_CAMERA_IMAGE_DIVISIONS_PER_SIDE[] = "CameraImageDivisionsPerSide";
-static const char KEY_SLIDE_VERSION[] = "CURRENT_SLIDE_VERSION";
 
 static const char GROUP_HIERARCHICAL[] = "HIERARCHICAL";
 static const char KEY_HIER_COUNT[] = "HIER_COUNT";
@@ -74,6 +73,11 @@ static const char VALUE_SCAN_DATA_LAYER_LABEL[] = "ScanDataLayer_SlideBarcode";
 static const char VALUE_SCAN_DATA_LAYER_THUMBNAIL[] = "ScanDataLayer_SlidePreview";
 // static const char VALUE_SLIDE_ZOOM_LEVEL[] = "Slide zoom level";
 static const char VALUE_SLIDE_ZOOM_LEVEL[] = "Microscope focus level";
+static const char VALUE_ZOOM_HIERARCHY[] = "Slide zoom level";
+static const char VALUE_FOCUS_HIERARCHY[] = "Microscope focus level";
+
+// fork-local: bound the hierarchical table so record offsets fit in int32
+static const int64_t MAX_HIER_RECORDS = INT32_MAX / 4;
 
 static const int SLIDE_POSITION_RECORD_SIZE = 9;
 
@@ -167,6 +171,24 @@ struct slide_zoom_level_params {
   double tile_advance_x;
   double tile_advance_y;
 };
+
+// fork-local: where records sit in the index's hierarchical table.  The
+// table is a mixed-radix array over every hierarchy with HIER_0 varying
+// fastest, so a hierarchy's stride is the product of the value counts of the
+// hierarchies before it.  Hierarchies other than zoom and focus are held at
+// value 0.  See docs/adr/0001-mirax-index-layout.md.
+struct hier_layout {
+  int zoom;              // HIER_n index of the zoom hierarchy
+  int zoom_count;
+  int64_t zoom_stride;
+  int focus;             // HIER_n index of the focus hierarchy, or -1
+  int focus_count;       // 1 when there is no focus hierarchy
+  int64_t focus_stride;
+};
+
+static int64_t hier_record(const struct hier_layout *hl, int zoom, int focus) {
+  return zoom * hl->zoom_stride + focus * hl->focus_stride;
+}
 
 struct image {
   int32_t fileno;
@@ -685,7 +707,7 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
 						   int images_across,
 						   int images_down,
 						   int image_divisions,
-						   double slide_version,
+						   const struct hier_layout *hl,
 						   const struct slide_zoom_level_params *slide_zoom_level_params,
 						   int32_t *slide_positions,
 						   struct _openslide_hash *quickhash1,
@@ -704,7 +726,9 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
 
     //    g_debug("reading zoom_level %d", zoom_level);
 
-    if (!_openslide_fseek(f, seek_location, SEEK_SET, err)) {
+    // fork-local: each level is a focal plane at full resolution
+    const int64_t record_ptr = seek_location + 4 * hier_record(hl, 0, zoom_level);
+    if (!_openslide_fseek(f, record_ptr, SEEK_SET, err)) {
       g_prefix_error(err, "Cannot seek to zoom level pointer %d: ", zoom_level);
       return false;
     }
@@ -894,14 +918,6 @@ static bool process_hier_data_pages_from_indexfile(struct _openslide_file *f,
 	}
       }
     } while (next_ptr != 0);
-
-    // jump to next block region of focus level
-    if (slide_version >= 2.5) {
-      seek_location += 108;
-    } else {
-      seek_location += 240;
-    }
-
   }
 
   return true;
@@ -1033,7 +1049,7 @@ static bool process_indexfile(openslide_t *osr,
 			      double overlap_x,
 			      double overlap_y,
 			      int image_divisions,
-			      double slide_version,
+			      const struct hier_layout *hl,
 			      const struct slide_zoom_level_params *slide_zoom_level_params,
 			      struct _openslide_file *indexfile,
 			      struct level **levels,
@@ -1201,7 +1217,7 @@ static bool process_indexfile(openslide_t *osr,
 					      images_x,
 					      images_y,
 					      image_divisions,
-					      slide_version,
+					      hl,
 					      slide_zoom_level_params,
 					      slide_positions,
 					      quickhash1,
@@ -1379,6 +1395,57 @@ static int get_associated_image_nonhier_offset(GKeyFile *keyfile,
   return offset;
 }
 
+// fork-local: read every hierarchy's name and count, and find the zoom and
+// focus hierarchies.  See struct hier_layout.
+static bool read_hier_layout(GKeyFile *slidedat, int hier_count,
+                             struct hier_layout *hl, GError **err) {
+  *hl = (struct hier_layout) {
+    .zoom = -1,
+    .focus = -1,
+    .focus_count = 1,
+  };
+  int64_t stride = 1;
+  for (int i = 0; i < hier_count; i++) {
+    g_autofree char *name_key = g_strdup_printf(KEY_HIER_d_NAME, i);
+    g_autofree char *name = NULL;
+    READ_KEY_OR_FAIL(name, slidedat, GROUP_HIERARCHICAL, name_key, value);
+    g_autofree char *count_key = g_strdup_printf(KEY_HIER_d_COUNT, i);
+    int count = 0;
+    READ_KEY_OR_FAIL(count, slidedat, GROUP_HIERARCHICAL, count_key, integer);
+
+    const bool is_zoom = hl->zoom == -1 && !strcmp(name, VALUE_ZOOM_HIERARCHY);
+    if (count <= 0) {
+      // upstream's message for the zoom hierarchy
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                  "%s <= 0: %d", is_zoom ? "zoom_levels" : count_key, count);
+      return false;
+    }
+    if (is_zoom) {
+      hl->zoom = i;
+      hl->zoom_count = count;
+      hl->zoom_stride = stride;
+    } else if (hl->focus == -1 && !strcmp(name, VALUE_FOCUS_HIERARCHY)) {
+      hl->focus = i;
+      hl->focus_count = count;
+      hl->focus_stride = stride;
+    }
+
+    if (stride > MAX_HIER_RECORDS / count) {
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                  "Too many hierarchical records");
+      return false;
+    }
+    stride *= count;
+  }
+
+  if (hl->zoom == -1) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "Can't find slide zoom level");
+    return false;
+  }
+  return true;
+}
+
 static bool mirax_open(openslide_t *osr, const char *filename,
                        struct _openslide_tifflike *tl G_GNUC_UNUSED,
                        struct _openslide_hash *quickhash1, GError **err) {
@@ -1432,18 +1499,8 @@ static bool mirax_open(openslide_t *osr, const char *filename,
     _openslide_parse_int64(objective_magnification_str,
                            &objective_magnification);
   }
+
   GError *tmp_err = NULL;
-
-  // fork-local: slide version selects the focus index table block stride.
-  // Older MIRAX files omit CURRENT_SLIDE_VERSION; fall back to the legacy
-  // (pre-2.5) layout instead of failing the open.
-  double slide_version =
-    g_key_file_get_double(slidedat, GROUP_GENERAL, KEY_SLIDE_VERSION, &tmp_err);
-  if (tmp_err != NULL) {
-    g_clear_error(&tmp_err);
-    slide_version = 0.0;
-  }
-
   int image_divisions =
     g_key_file_get_integer(slidedat, GROUP_GENERAL,
                            KEY_CAMERA_IMAGE_DIVISIONS_PER_SIDE, &tmp_err);
@@ -1469,6 +1526,11 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 
   POSITIVE_OR_FAIL(hier_count);
   NON_NEGATIVE_OR_FAIL(nonhier_count);
+
+  struct hier_layout hl;
+  if (!read_hier_layout(slidedat, hier_count, &hl, err)) {
+    return false;
+  }
 
   // find key for slide zoom level
   g_autofree char *key_slide_zoom_level_count = NULL;
@@ -1830,7 +1892,7 @@ static bool mirax_open(openslide_t *osr, const char *filename,
 			 slide_zoom_level_sections[0].overlap_x,
 			 slide_zoom_level_sections[0].overlap_y,
 			 image_divisions,
-			 slide_version,
+			 &hl,
 			 slide_zoom_level_params,
 			 indexfile,
 			 (struct level **) level_array->pdata,
